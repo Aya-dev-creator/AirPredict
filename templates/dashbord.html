@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+{% block title %}Tableau de Bord - Surveillance Qualité de l'Air{% endblock %}
+
+<!-- ========== SCRIPTS NÉCESSAIRES (Chart.js, Socket.IO, Leaflet) ========== -->
+{% block extra_head_scripts %}
+    <!-- Chart.js pour les graphiques (courbes, jauges, etc.) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
+    <!-- Socket.IO pour les mises à jour en temps réel (WebSocket) -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    
+    <!-- Leaflet pour les cartes GPS (optionnel sur le dashboard) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+{% endblock %}
+
+<!-- ========== CONTENU PRINCIPAL DU DASHBOARD ========== -->
+{% block content %}
+        <!-- En-tête de la page avec titre et actions -->
+        <header class="header">
+            <div class="header-left">
+                <h2 class="page-title">Tableau de Bord</h2>
+                <p class="page-subtitle">Surveillance de la qualité de l'air en temps réel</p>
+            </div>
+            <div class="header-right">
+                <div class="header-actions">
+                <!-- Zone des notifications -->
+                <div class="notifications-wrap">
+                    <button class="icon-button" id="notifBtn" title="Notifications">
+                        <!-- Badge avec le nombre de notifications (masqué si aucune) -->
+                        <span class="notification-badge" id="notifBadge" style="display: none;">0</span>
+                        <i class="fas fa-bell"></i>
+                    </button>
+                    <!-- Panneau des notifications (apparaît au clic) -->
+                    <div class="notifications-panel" id="notificationsPanel">
+                        <div class="notif-header">Notifications</div>
+                        <div id="notificationsList">Aucune nouvelle notification</div>
+                    </div>
+                </div>
+                
+                <!-- Zone du profil utilisateur -->
+                <div class="profile-wrap">
+                    <button class="user-profile" id="profileBtn" title="Profil">
+                        <img src="https://ui-avatars.com/api/?name=Utilisateur&background=7C3AED&color=fff" alt="Utilisateur">
+                    </button>
+                    <!-- Panneau de configuration du profil -->
+                    <div class="profile-panel" id="profilePanel">
+                        <div class="profile-panel-header">Profil & Alertes</div>
+                        <label style="display:block; margin-bottom: var(--spacing-sm); font-size: 0.875rem;">Email (pour recevoir les alertes)</label>
+                        <input type="email" id="profileEmail" placeholder="votre@email.com" 
+                               style="width:100%; padding: var(--spacing-sm) var(--spacing-md); margin-bottom: var(--spacing-lg); 
+                                      border-radius: var(--radius-md); border: 1px solid var(--bg-tertiary); 
+                                      background: var(--bg-tertiary); color: var(--text-primary); font-size: 0.875rem;">
+                        <label style="display:flex; align-items: center; gap: var(--spacing-sm); margin-bottom: var(--spacing-lg); 
+                                      font-size: 0.875rem; cursor: pointer;">
+                            <input type="checkbox" id="alertsEnabled" checked>
+                            <span>Activer les alertes par email</span>
+                        </label>
+                        <button class="time-btn" id="profileSave" style="width: 100%;">Enregistrer</button>
+                    </div>
+                </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ========== GRILLE DE CARTES (Disposition responsive) ========== -->
+        <div class="dashboard-grid">
+            
+            <!-- ========== CARTE MÉTÉO ========== -->
+            <!-- Affiche la météo actuelle avec icône et détails -->
+            <div class="card weather-card">
+                <div class="weather-header">
+                    <div class="location-info">
+                        <!-- Nom de la ville (chargé depuis l'API) -->
+                        <h3 id="locationName">Chargement...</h3>
+                        <!-- Date actuelle -->
+                        <p id="currentDate">--</p>
+                    </div>
+                    <div class="weather-icon">
+                        <!-- Icône météo depuis OpenWeatherMap -->
+                        <img id="weatherIcon" src="" alt="Météo">
+                    </div>
+                </div>
+                
+                <div class="weather-main">
+                    <!-- Température principale en gros -->
+                    <div class="temperature">
+                        <span class="temp-value" id="temperature">--</span>
+                        <span class="temp-unit">°C</span>
+                    </div>
+                    <!-- Description de la météo (ex: "Ensoleillé", "Nuageux") -->
+                    <p class="weather-desc" id="weatherDesc">--</p>
+                </div>
+                
+                <!-- Détails supplémentaires (vent, humidité, etc.) -->
+                <div class="weather-details">
+                    <div class="weather-item">
+                        <span class="item-icon"><i class="fas fa-wind"></i></span>
+                        <div>
+                            <p class="item-label">Vitesse du Vent</p>
+                            <p class="item-value" id="windSpeed">-- km/h</p>
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <span class="item-icon"><i class="fas fa-tint"></i></span>
+                        <div>
+                            <p class="item-label">Humidité</p>
+                            <p class="item-value" id="humidity">--%</p>
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <span class="item-icon"><i class="fas fa-sunrise"></i></span>
+                        <div>
+                            <p class="item-label">Lever du Soleil</p>
+                            <p class="item-value" id="sunrise">--:--</p>
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <span class="item-icon"><i class="fas fa-sunset"></i></span>
+                        <div>
+                            <p class="item-label">Coucher du Soleil</p>
+                            <p class="item-value" id="sunset">--:--</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== CARTE QUALITÉ DE L'AIR (AQI) ========== -->
+            <!-- Affiche l'indice de qualité de l'air avec une jauge circulaire -->
+            <div class="card aqi-card">
+                <h3 class="card-title">Indice de Qualité de l'Air</h3>
+                <!-- Jauge circulaire (doughnut chart) -->
+                <div class="aqi-gauge">
+                    <canvas id="aqiGauge"></canvas>
+                    <!-- Valeur au centre de la jauge -->
+                    <div class="aqi-center">
+                        <div class="aqi-value" id="aqiValue">--</div>
+                        <div class="aqi-label" id="aqiLabel">Chargement</div>
+                    </div>
+                </div>
+                <!-- Description détaillée -->
+                <div class="aqi-info">
+                    <p id="aqiDescription">Récupération des données de qualité de l'air...</p>
+                </div>
+            </div>
+
+            <!-- ========== CARTE APERÇU DU JOUR ========== -->
+            <!-- Affiche des métriques rapides (température, humidité, pression, visibilité) -->
+            <div class="card overview-card">
+                <h3 class="card-title">Aperçu d'Aujourd'hui</h3>
+                <div class="metrics-grid">
+                    <!-- Métrique : Température -->
+                    <div class="metric">
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <i class="fas fa-thermometer-half"></i>
+                        </div>
+                        <div class="metric-info">
+                            <p class="metric-label">Température</p>
+                            <p class="metric-value" id="metricTemp">--°C</p>
+                            <p class="metric-change positive"><i class="fas fa-arrow-up"></i> 2°C</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Métrique : Humidité -->
+                    <div class="metric">
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <i class="fas fa-tint"></i>
+                        </div>
+                        <div class="metric-info">
+                            <p class="metric-label">Humidité</p>
+                            <p class="metric-value" id="metricHumidity">--%</p>
+                            <p class="metric-change negative"><i class="fas fa-arrow-down"></i> 5%</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Métrique : Pression Atmosphérique -->
+                    <div class="metric">
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                            <i class="fas fa-compress-arrows-alt"></i>
+                        </div>
+                        <div class="metric-info">
+                            <p class="metric-label">Pression</p>
+                            <p class="metric-value" id="metricPressure">-- hPa</p>
+                            <p class="metric-change positive"><i class="fas fa-arrow-up"></i> 2 hPa</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Métrique : Visibilité -->
+                    <div class="metric">
+                        <div class="metric-icon" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                            <i class="fas fa-eye"></i>
+                        </div>
+                        <div class="metric-info">
+                            <p class="metric-label">Visibilité</p>
+                            <p class="metric-value" id="metricVisibility">-- km</p>
+                            <p class="metric-change">--</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== CARTE PRÉVISIONS 5 JOURS ========== -->
+            <!-- Affiche les prévisions météo pour les 5 prochains jours -->
+            <div class="card forecast-card">
+                <h3 class="card-title">Prévisions sur 5 Jours</h3>
+                <div class="forecast-list" id="forecastList">
+                    <!-- Les prévisions seront insérées ici par JavaScript -->
+                </div>
+            </div>
+
+            <!-- ========== CARTE ALERTES ACTIVES ========== -->
+            <!-- Affiche les alertes de pollution en cours -->
+            <div class="card alerts-card">
+                <div class="card-header">
+                    <h3 class="card-title">Alertes Actives</h3>
+                    <button class="filter-btn">Filtrer</button>
+                </div>
+                <div class="alerts-list" id="alertsList">
+                    <!-- État par défaut si aucune alerte -->
+                    <div class="empty-state">
+                        <span class="empty-icon"><i class="fas fa-check-circle"></i></span>
+                        <p>Aucune alerte active</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ========== CARTE STATISTIQUES 24H ========== -->
+            <!-- Affiche les statistiques sur les dernières 24 heures -->
+            <div class="card stats-card">
+                <h3 class="card-title">Statistiques sur 24 Heures</h3>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <p class="stat-label">AQI Moyen</p>
+                        <p class="stat-value" id="avgAqi">--</p>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">AQI Minimum</p>
+                        <p class="stat-value" id="minAqi">--</p>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">AQI Maximum</p>
+                        <p class="stat-value" id="maxAqi">--</p>
+                    </div>
+                    <div class="stat-item">
+                        <p class="stat-label">Total de Mesures</p>
+                        <p class="stat-value" id="totalReadings">--</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+{% endblock %}
+
+<!-- ========== SCRIPTS JAVASCRIPT ========== -->
+{% block extra_scripts %}
+    <!-- Charger le script principal du dashboard -->
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    
+    <!-- Script supplémentaire pour gérer les panneaux de notifications et profil -->
+    <script>
+        // Gestion du panneau de notifications
+        document.addEventListener('DOMContentLoaded', () => {
+            const notifBtn = document.getElementById('notifBtn');
+            const notifPanel = document.getElementById('notificationsPanel');
+            const profileBtn = document.getElementById('profileBtn');
+            const profilePanel = document.getElementById('profilePanel');
+            
+            // Toggle du panneau notifications
+            if (notifBtn && notifPanel) {
+                notifBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    notifPanel.classList.toggle('show');
+                    // Fermer le panneau profil si ouvert
+                    if (profilePanel) profilePanel.classList.remove('show');
+                });
+            }
+            
+            // Toggle du panneau profil
+            if (profileBtn && profilePanel) {
+                profileBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    profilePanel.classList.toggle('show');
+                    // Fermer le panneau notifications si ouvert
+                    if (notifPanel) notifPanel.classList.remove('show');
+                });
+            }
+            
+            // Fermer les panneaux si on clique ailleurs
+            document.addEventListener('click', () => {
+                if (notifPanel) notifPanel.classList.remove('show');
+                if (profilePanel) profilePanel.classList.remove('show');
+            });
+            
+            // Empêcher la fermeture si on clique dans les panneaux
+            if (notifPanel) notifPanel.addEventListener('click', (e) => e.stopPropagation());
+            if (profilePanel) profilePanel.addEventListener('click', (e) => e.stopPropagation());
+            
+            // Sauvegarder les paramètres du profil
+            const profileSave = document.getElementById('profileSave');
+            if (profileSave) {
+                profileSave.addEventListener('click', () => {
+                    const email = document.getElementById('profileEmail').value;
+                    const alertsEnabled = document.getElementById('alertsEnabled').checked;
+                    
+                    // Sauvegarder dans le localStorage
+                    localStorage.setItem('userEmail', email);
+                    localStorage.setItem('alertsEnabled', alertsEnabled);
+                    
+                    alert('Paramètres sauvegardés avec succès !');
+                    profilePanel.classList.remove('show');
+                });
+            }
+            
+            // Charger les paramètres sauvegardés
+            const savedEmail = localStorage.getItem('userEmail');
+            const savedAlertsEnabled = localStorage.getItem('alertsEnabled') !== 'false';
+            
+            if (savedEmail) document.getElementById('profileEmail').value = savedEmail;
+            document.getElementById('alertsEnabled').checked = savedAlertsEnabled;
+        });
+    </script>
+    
+    <!-- Style CSS pour les panneaux (notifications et profil) -->
+    <style>
+        .notifications-wrap, .profile-wrap {
+            position: relative;
+        }
+        
+        .notifications-panel, .profile-panel {
+            position: absolute;
+            top: 50px;
+            right: 0;
+            background: var(--bg-secondary);
+            border: 1px solid var(--bg-tertiary);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-xl);
+            min-width: 300px;
+            max-width: 400px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        .notifications-panel.show, .profile-panel.show {
+            display: block;
+        }
+        
+        .notif-header, .profile-panel-header {
+            padding: var(--spacing-lg);
+            border-bottom: 1px solid var(--bg-tertiary);
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        
+        #notificationsList {
+            padding: var(--spacing-lg);
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .profile-panel {
+            padding: var(--spacing-lg);
+        }
+    </style>
+{% endblock %}

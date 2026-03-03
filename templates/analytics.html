@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Analytique - AirWatch{% endblock %}
+{% block extra_head_scripts %}{% endblock %}
+{% block extra_css %}
+<style>
+.analytics-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: var(--spacing-lg); }
+.card { background: var(--bg-secondary); border-radius: var(--radius-xl); padding: var(--spacing-xl); border: 1px solid var(--bg-tertiary); }
+.card.large { grid-column: span 8; }
+.card.medium { grid-column: span 6; }
+.card.small { grid-column: span 4; }
+.period-selector { display: flex; gap: var(--spacing-sm); margin-bottom: var(--spacing-lg); flex-wrap: wrap; }
+.period-link { padding: var(--spacing-sm) var(--spacing-lg); border-radius: var(--radius-sm); text-decoration: none; font-size: 0.875rem; border: 1px solid var(--bg-tertiary); color: var(--text-secondary); background: var(--bg-tertiary); transition: all 0.2s ease; }
+.period-link:hover { background: var(--accent-gradient); color: white; }
+.period-link.active { background: var(--accent-gradient); color: white; border-color: transparent; }
+.insight-card { background: var(--bg-tertiary); padding: var(--spacing-lg); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); border-left: 4px solid var(--accent-primary); }
+.insight-title { font-weight: 600; margin-bottom: var(--spacing-sm); }
+.insight-text { color: var(--text-secondary); font-size: 0.875rem; }
+.metrics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--spacing-md); margin-top: var(--spacing-lg); }
+.metric { background: var(--bg-tertiary); border-radius: var(--radius-md); padding: var(--spacing-md); text-align: center; }
+.metric-label { font-size: 0.75rem; color: var(--text-secondary); }
+.metric-value { font-size: 1.25rem; font-weight: 600; }
+.table-wrapper { max-height: 420px; overflow: auto; margin-top: var(--spacing-lg); border-radius: var(--radius-lg); border: 1px solid var(--bg-tertiary); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.data-table th, .data-table td { padding: 0.5rem 0.75rem; text-align: left; white-space: nowrap; }
+.data-table thead { position: sticky; top: 0; background: var(--bg-secondary); z-index: 1; }
+.data-table tbody tr:nth-child(odd) { background-color: rgba(15,23,42,0.4); }
+.pill { display: inline-flex; align-items: center; justify-content: center; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.75rem; }
+.nasa-badge { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.8rem; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(59,130,246,0.1); color: #bfdbfe; border: 1px solid rgba(59,130,246,0.3); }
+.nasa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--spacing-md); margin-top: var(--spacing-lg); }
+.nasa-card { background: var(--bg-tertiary); border-radius: var(--radius-md); padding: var(--spacing-md); border-left: 4px solid #f97316; }
+.nasa-title { font-weight: 600; margin-bottom: 0.25rem; }
+.nasa-meta { font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
+.nasa-distance { font-weight: 500; }
+.nasa-category { font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 999px; background: rgba(148,163,184,0.15); }
+.nasa-empty { font-size: 0.9rem; color: var(--text-secondary); margin-top: 0.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+        <header class="header">
+            <div class="header-left">
+                <h2 class="page-title">Analytique avancée (côté serveur)</h2>
+                <p class="page-subtitle">Analyses Python de la qualité de l'air et des évènements naturels NASA</p>
+            </div>
+            <div class="header-right">
+                <div class="period-selector">
+                    <a href="{{ url_for('analytics_view', days=7) }}" class="period-link {% if summary.days == 7 %}active{% endif %}">7 jours</a>
+                    <a href="{{ url_for('analytics_view', days=30) }}" class="period-link {% if summary.days == 30 %}active{% endif %}">30 jours</a>
+                    <a href="{{ url_for('analytics_view', days=90) }}" class="period-link {% if summary.days == 90 %}active{% endif %}">90 jours</a>
+                </div>
+            </div>
+        </header>
+
+        <div style="padding: var(--spacing-xl);">
+            <div class="analytics-grid">
+                <div class="card large">
+                    <h3>Résumé de la qualité de l'air ({{ summary.days }} jours)</h3>
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-label">AQI moyen</div>
+                            <div class="metric-value">{{ summary.avg_aqi }}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Meilleur AQI</div>
+                            <div class="metric-value">{{ summary.min_aqi }}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Pire AQI</div>
+                            <div class="metric-value">{{ summary.max_aqi }}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Mesures</div>
+                            <div class="metric-value">{{ summary.total_readings }}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Meilleure plage horaire</div>
+                            <div class="metric-value">{{ summary.best_range }}</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-label">Niveau global</div>
+                            <div class="metric-value">{{ summary.quality_level }}</div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: var(--spacing-lg);">
+                        <div class="insight-card">
+                            <div class="insight-title">📊 Analyse globale</div>
+                            <div class="insight-text">
+                                {{ summary.quality_description }}
+                            </div>
+                        </div>
+                        <div class="insight-card">
+                            <div class="insight-title">📈 Répartition des mesures</div>
+                            <div class="insight-text">
+                                Bon : {{ summary.distribution[0] }} &nbsp;|&nbsp;
+                                Modéré : {{ summary.distribution[1] }} &nbsp;|&nbsp;
+                                Mauvais : {{ summary.distribution[2] }} &nbsp;|&nbsp;
+                                Très mauvais : {{ summary.distribution[3] }} &nbsp;|&nbsp;
+                                Dangereux : {{ summary.distribution[4] }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card medium">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--spacing-md);">
+                        <h3>Mesures brutes</h3>
+                        <span class="pill" style="background:rgba(148,163,184,0.25);color:#e5e7eb;">Les plus récentes en premier</span>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date / heure</th>
+                                    <th>Qualité de l'air (PPM)</th>
+                                    <th>Température (°C)</th>
+                                    <th>Humidité (%)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ts, aqi, temp, hum in table_rows|reverse %}
+                                <tr>
+                                    <td>{{ ts }}</td>
+                                    <td>{{ '%.1f'|format(aqi) }}</td>
+                                    <td>{{ '%.1f'|format(temp) }}</td>
+                                    <td>{{ '%.1f'|format(hum) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="card medium">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--spacing-md);gap:0.75rem;">
+                        <div>
+                            <h3>Évènements environnementaux NASA</h3>
+                            <p class="page-subtitle" style="font-size:0.8rem;margin-top:0.25rem;">
+                                Tempêtes de poussière, fumées, feux et autres phénomènes naturels à proximité pouvant impacter la qualité de l'air.
+                            </p>
+                        </div>
+                        <div class="nasa-badge">
+                            <span>NASA EONET</span>
+                        </div>
+                    </div>
+
+                    {% if nasa_events and nasa_events|length > 0 %}
+                        <div class="nasa-grid">
+                            {% for e in nasa_events %}
+                            <div class="nasa-card">
+                                <div class="nasa-title">{{ e.title }}</div>
+                                <div class="nasa-meta">
+                                    {% if e.distance_km %}
+                                        <span class="nasa-distance">{{ e.distance_km }} km du capteur</span>
+                                    {% else %}
+                                        <span class="nasa-distance">Distance inconnue</span>
+                                    {% endif %}
+                                    &nbsp;·&nbsp;
+                                    <span>{{ e.date }}</span>
+                                </div>
+                                <div style="margin-bottom:0.5rem;">
+                                    {% for c in e.categories %}
+                                        <span class="nasa-category">{{ c }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% if e.link %}
+                                    <a href="{{ e.link }}" target="_blank" rel="noopener" style="font-size:0.8rem;color:#93c5fd;text-decoration:underline;">
+                                        Voir les détails NASA
+                                    </a>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="nasa-empty">
+                            Aucun évènement NASA récent détecté à proximité pour cette période. Cela signifie généralement qu'aucune grande tempête de poussière, fumée ou feu de forêt n'a été détectée autour de votre position.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+{% endblock %}
+
+{% block extra_scripts %}{% endblock %}
