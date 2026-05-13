@@ -127,6 +127,43 @@ class AirQualityDatabase:
             self.connection.rollback()
             return False
     
+    def upsert_user(self, name, email):
+        """
+        Crée ou met à jour un utilisateur (identifié par email).
+        
+        Args:
+            name (str): Nom complet de l'utilisateur
+            email (str): Adresse email (unique)
+        
+        Returns:
+            int: ID de l'utilisateur inséré ou mis à jour
+        """
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL UNIQUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            
+            cursor.execute("""
+                INSERT INTO users (name, email)
+                VALUES (?, ?)
+                ON CONFLICT(email) DO UPDATE SET name=excluded.name;
+            """, (name, email))
+            
+            self.connection.commit()
+            user_id = cursor.lastrowid
+            logger.info(f"✓ Utilisateur enregistré/ajouté: {email}")
+            return user_id
+        except Exception as e:
+            logger.error(f"✗ Erreur lors de l'enregistrement de l'utilisateur: {e}")
+            self.connection.rollback()
+            return None
+    
     def insert_sensor_data(self, air_quality, temperature, humidity, latitude=None, longitude=None):
         """
         Insère une nouvelle lecture de capteur dans la base de données
@@ -360,6 +397,22 @@ class AirQualityDatabase:
             
         except Exception as e:
             logger.error(f"✗ Erreur lors de la récupération des alertes: {e}")
+            return []
+    
+    def get_recent_alerts(self, limit=10):
+        """Récupère les alertes les plus récentes (résolues ou non)"""
+        try:
+            cursor = self.connection.cursor()
+            query = """
+                SELECT * FROM alerts
+                ORDER BY created_at DESC
+                LIMIT ?;
+            """
+            cursor.execute(query, (limit,))
+            results = cursor.fetchall()
+            return [dict(row) for row in results]
+        except Exception as e:
+            logger.error(f"✗ Erreur get_recent_alerts: {e}")
             return []
     
     def resolve_alert(self, alert_id):

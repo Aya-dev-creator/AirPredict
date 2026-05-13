@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Assistant IA — AirWatch{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chat.css') }}">
+{% endblock %}
+
+{% block content %}
+<header class="header">
+    <div class="header-left">
+        <h2 class="page-title">💬 Assistant IA</h2>
+        <p class="page-subtitle">Posez vos questions sur la qualité de l'air et l'environnement.</p>
+    </div>
+    <div class="header-right">
+        <span class="status-pill"><span class="dot" aria-hidden="true"></span> En ligne</span>
+    </div>
+</header>
+
+<div class="chat-page-outer">
+    <div class="chat-container chat-maquette">
+        <div class="chat-card-head">
+            <div class="chat-bot-identity">
+                <span class="bot-avatar"><i class="fas fa-robot"></i></span>
+                <div>
+                    <div class="bot-name">AirWatch Assistant</div>
+                    <div class="bot-status"><span class="mini-dot"></span> Actif</div>
+                </div>
+            </div>
+        </div>
+        <div class="quick-chips">
+            <form action="/chat" method="post" class="chip-form"><input type="hidden" name="message" value="Quelle est la qualité de l'air ?"><button type="submit" class="chip-btn">Quelle est la qualité de l'air ?</button></form>
+            <form action="/chat" method="post" class="chip-form"><input type="hidden" name="message" value="Quelles sont les prédictions ?"><button type="submit" class="chip-btn">Quelles sont les prédictions ?</button></form>
+            <form action="/chat" method="post" class="chip-form"><input type="hidden" name="message" value="Conseils santé"><button type="submit" class="chip-btn">Conseils santé</button></form>
+            <form action="/chat" method="post" class="chip-form"><input type="hidden" name="message" value="Météo actuelle"><button type="submit" class="chip-btn">Météo actuelle</button></form>
+        </div>
+
+        <div class="chat-messages-page">
+            {% for msg in history %}
+            <div class="message-bubble {{ msg.sender }}">{{ msg.text }}</div>
+            {% endfor %}
+        </div>
+
+        <div class="chat-form-page">
+            <form action="/chat" method="POST" class="input-group">
+                <input type="text" name="message" class="chat-input-field" placeholder="Posez votre question ici..." required autocomplete="off" autofocus>
+                <button type="submit" class="btn-send-gradient"><i class="fas fa-paper-plane"></i> Envoyer</button>
+            </form>
+            <div class="chat-footer-links">
+                <a href="/chat/clear">Effacer la conversation</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

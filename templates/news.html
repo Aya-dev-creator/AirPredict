@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Actualités — AirWatch{% endblock %}
+{% block extra_css %}
+<style>
+.news-wrap { padding: var(--spacing-xl); max-width: 1100px; margin: 0 auto; }
+.section-title { font-size: 0.95rem; color: var(--text-secondary); margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: 0.5rem; }
+.sources-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-md); margin-bottom: var(--spacing-xl); }
+.source-card {
+    background: var(--bg-secondary); border: 1px solid var(--bg-tertiary); border-radius: var(--radius-lg);
+    padding: var(--spacing-md); 
+}
+.source-card h4 { font-size: 1rem; margin-bottom: 0.25rem; }
+.source-card .sub { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+.tag { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 0.2rem 0.55rem; border-radius: 999px; }
+.tag-env { background: rgba(34,197,94,0.2); color: #4ade80; }
+.tag-pol { background: rgba(59,130,246,0.2); color: #60a5fa; }
+.tag-health { background: rgba(248,113,113,0.2); color: #f87171; }
+.tag-life { background: rgba(167,139,250,0.25); color: #c4b5fd; }
+.tag-cli { background: rgba(251,191,36,0.2); color: #fbbf24; }
+.tag-default { background: var(--bg-tertiary); color: var(--text-secondary); }
+.article-list { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.article-card {
+    background: var(--bg-secondary); border: 1px solid var(--bg-tertiary); border-radius: var(--radius-lg);
+    padding: var(--spacing-lg); position: relative;
+}
+.article-card .tag-top { position: absolute; top: var(--spacing-md); left: var(--spacing-md); }
+.article-card h2, .article-card .article-title-link { font-size: 1.1rem; margin: 1.75rem 0 0.5rem; line-height: 1.35; }
+.article-card .article-title-link a { color: var(--text-primary); text-decoration: none; }
+.article-card .article-title-link a:hover { color: #a78bfa; text-decoration: underline; }
+.article-card .meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+.article-card .sum { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.5; margin: 0 0 0.75rem; }
+.article-card .read-more { font-size: 0.85rem; font-weight: 600; }
+.article-card .read-more a { color: #a78bfa; text-decoration: none; }
+.article-card .read-more a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="header">
+    <div class="header-left">
+        <h2 class="page-title">📰 Actualités</h2>
+        <p class="page-subtitle">Dernières nouvelles sur la qualité de l'air et l'environnement</p>
+    </div>
+    <div class="header-right">
+        <span class="status-pill"><span class="dot" aria-hidden="true"></span> En ligne</span>
+    </div>
+</header>
+
+<div class="news-wrap">
+    <div class="section-title">🎵 Sources d'information</div>
+    <div class="sources-row">
+        {% for s in sources[:8] %}
+        <div class="source-card">
+            <h4>{{ s.name or 'Source' }}</h4>
+            <div class="sub">{% if s.sub %}{{ s.sub }}{% else %}{{ s.country or 'MA' }} — {{ (s.language or 'fr')|upper }}{% endif %}</div>
+            {% set st = s.tag_style or 'default' %}
+            <span class="tag tag-{{ st }}">{{ s.tag or s.category or 'Info' }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="section-title" style="margin-top:var(--spacing-xl);">À la une</div>
+    <div class="article-list">
+        {% for a in articles %}
+        <article class="article-card">
+            <span class="tag tag-{{ a.tag_style }} tag-top">{{ a.tag }}</span>
+            {% if a.url %}
+            <h2 class="article-title-link"><a href="{{ a.url }}" target="_blank" rel="noopener noreferrer">{{ a.title }}</a></h2>
+            {% else %}
+            <h2>{{ a.title }}</h2>
+            {% endif %}
+            <p class="meta">{{ a.meta }}</p>
+            <p class="sum">{{ a.summary }}</p>
+            {% if a.url %}
+            <p class="read-more"><a href="{{ a.url }}" target="_blank" rel="noopener noreferrer">Lire l’article →</a></p>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

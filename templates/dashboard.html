@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}Tableau de bord — AirWatch{% endblock %}
+
+{% block extra_css %}
+<style>
+    .aqi-gauge-static {
+        width: 180px;
+        height: 180px;
+        border-radius: 50%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        position: relative;
+        border: 12px solid var(--bg-tertiary);
+    }
+    .aqi-gauge-static::before {
+        content: '';
+        position: absolute;
+        inset: -12px;
+        border-radius: 50%;
+        border: 12px solid transparent;
+        border-top-color: var(--aqi-color, #f59e0b);
+        transform: rotate(var(--aqi-rotate, 0deg));
+    }
+    .aqi-value-large { font-size: 2.75rem; font-weight: 800; line-height: 1; }
+    .aqi-label-status { font-size: 1rem; font-weight: 600; color: var(--aqi-color, #f59e0b); margin-top: 0.25rem; }
+    .forecast-item { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+        padding: var(--spacing-md); background: var(--bg-tertiary); border-radius: var(--radius-md); }
+    .forecast-day { font-weight: 600; min-width: 5.5rem; }
+    .forecast-temp { font-weight: 700; color: #a78bfa; }
+    .stat-value.good { color: #34d399; }
+    .stat-value.warn { color: #fbbf24; }
+    .stat-value.bad { color: #f87171; }
+</style>
+{% endblock %}
+
+{% block content %}
+<header class="header">
+    <div class="header-left">
+        <h2 class="page-title">🏠 Tableau de bord</h2>
+        <p class="page-subtitle">Surveillance environnementale en temps réel — {{ now_str }}</p>
+    </div>
+    <div class="header-right">
+        <span class="status-pill"><span class="dot" aria-hidden="true"></span> Actif</span>
+    </div>
+</header>
+
+<div class="dashboard-grid">
+
+    <div class="card weather-card">
+        <div class="weather-header">
+            <div class="location-info">
+                <h3>📍 {{ weather.city if weather and weather.city else 'Casablanca' }}</h3>
+                <p>{{ weather.description|capitalize if weather and weather.description else 'Météo' }}</p>
+            </div>
+            <div class="weather-icon">
+                {% if weather and weather.icon %}
+                <img src="https://openweathermap.org/img/wn/{{ weather.icon }}@2x.png" alt="">
+                {% else %}
+                <i class="fas fa-cloud-sun" style="font-size: 3rem; opacity: 0.9;"></i>
+                {% endif %}
+            </div>
+        </div>
+        <div class="weather-main">
+            <div class="temperature">
+                <span class="temp-value">{{ weather.temperature if weather and weather.temperature is not none else '—' }}</span>
+                <span class="temp-unit">°C</span>
+            </div>
+            <p class="weather-desc">{{ weather.description|capitalize if weather and weather.description else 'Données locales' }}</p>
+        </div>
+        <div class="weather-details">
+            <div class="weather-item">
+                <span class="item-icon"><i class="fas fa-droplet"></i></span>
+                <div>
+                    <p class="item-label">Humidité</p>
+                    <p class="item-value">{{ weather.humidity if weather else '—' }}%</p>
+                </div>
+            </div>
+            <div class="weather-item">
+                <span class="item-icon"><i class="fas fa-wind"></i></span>
+                <div>
+                    <p class="item-label">Vent</p>
+                    <p class="item-value">{{ weather.wind_speed if weather else '—' }} km/h</p>
+                </div>
+            </div>
+            <div class="weather-item">
+                <span class="item-icon"><i class="fas fa-sun"></i></span>
+                <div>
+                    <p class="item-label">Lever</p>
+                    <p class="item-value">{{ weather.sunrise if weather else '—' }}</p>
+                </div>
+            </div>
+            <div class="weather-item">
+                <span class="item-icon"><i class="fas fa-moon"></i></span>
+                <div>
+                    <p class="item-label">Coucher</p>
+                    <p class="item-value">{{ weather.sunset if weather else '—' }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card aqi-card">
+        <h3 class="card-title">Qualité de l'air</h3>
+        <div class="aqi-gauge-static"
+            style="--aqi-color: {{ aqi.color if aqi else '#fbbf24' }}; --aqi-rotate: {{ ((aqi_value or 0) / 200 * 220 - 110)|int }}deg;">
+            <div class="aqi-value-large">{{ aqi_value }}</div>
+            <div class="aqi-label-status">PPM</div>
+        </div>
+        <p class="aqi-label-status" style="text-align:center;margin-top:0.75rem;">{{ aqi.level if aqi else '—' }}</p>
+    </div>
+
+    <div class="card overview-card">
+        <h3 class="card-title">📊 Lectures capteurs locaux</h3>
+        <div class="metrics-grid">
+            <div class="metric">
+                <div class="metric-icon" style="background: linear-gradient(135deg, #f472b6, #fbcfe8);">
+                    <i class="fas fa-temperature-half"></i>
+                </div>
+                <div class="metric-info">
+                    <p class="metric-label">Température</p>
+                    <p class="metric-value">{{ '%.1f'|format(sensor.temperature) if sensor and sensor.temperature is not none else '—' }}°C</p>
+                </div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon" style="background: linear-gradient(120deg, #60a5fa, #93c5fd);">
+                    <i class="fas fa-droplet"></i>
+                </div>
+                <div class="metric-info">
+                    <p class="metric-label">Humidité</p>
+                    <p class="metric-value">{{ '%.1f'|format(sensor.humidity) if sensor and sensor.humidity is not none else '—' }}%</p>
+                </div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon" style="background: linear-gradient(to right, #34d399, #6ee7b7);">
+                    <i class="fas fa-lungs"></i>
+                </div>
+                <div class="metric-info">
+                    <p class="metric-label">Qualité de l'air</p>
+                    <p class="metric-value">{{ '%.1f'|format(sensor.air_quality_ppm) if sensor and sensor.air_quality_ppm is not none else '—' }} PPM</p>
+                </div>
+            </div>
+            <div class="metric">
+                <div class="metric-icon" style="background: linear-gradient(120deg, #fb923c, #fdba74);">
+                    <i class="fas fa-location-crosshairs"></i>
+                </div>
+                <div class="metric-info">
+                    <p class="metric-label">Coordonnées</p>
+                    <p class="metric-value" style="font-size:0.95rem;">
+                        {% if sensor and sensor.latitude is not none and sensor.longitude is not none %}
+                        {{ '%.4f'|format(sensor.latitude|float) }}, {{ '%.4f'|format(sensor.longitude|float) }}
+                        {% else %}
+                        33.5731, -7.5898
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card forecast-card">
+        <h3 class="card-title">📅 Prévisions 5 jours</h3>
+        <div class="forecast-list">
+            {% for f in forecasts %}
+            <div class="forecast-item">
+                <span class="forecast-day">{{ f.day_name_fr or f.day_name }}</span>
+                {% if f.icon %}
+                <img src="https://openweathermap.org/img/wn/{{ f.icon }}.png" width="36" alt="">
+                {% endif %}
+                <span style="flex:1;font-size:0.8rem;color:var(--text-muted);">{{ f.description|capitalize }}</span>
+                <span class="forecast-temp">{{ (f.temp_max|round(0))|int if f.temp_max is defined else '—' }}°C</span>
+            </div>
+            {% else %}
+            <p style="color:var(--text-muted);">Prévisions indisponibles (clé API météo ou connexion).</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card alerts-card">
+        <h3 class="card-title">🔔 Alertes</h3>
+        <div class="alerts-list">
+            {% for alert in alerts %}
+            <div class="alert-item high" style="border-left: 4px solid #fbbf24;">
+                <span class="alert-icon">⚠️</span>
+                <div class="alert-content">
+                    <p class="alert-message">{{ alert.message }}</p>
+                    <p class="alert-time">{{ alert.created_at }}</p>
+                </div>
+            </div>
+            {% else %}
+            <div class="alert-item medium" style="border-left: 4px solid #fbbf24;">
+                <span class="alert-icon">⚠️</span>
+                <div class="alert-content">
+                    <p class="alert-message">Qualité de l'air modérée détectée</p>
+                    <p class="alert-time">{{ now_str }}</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card stats-card">
+        <h3 class="card-title">📊 Stats 24h</h3>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <p class="stat-label">Minimum</p>
+                <p class="stat-value good">{{ (stats.min_aqi or 0)|round(1) if stats else '—' }} PPM</p>
+            </div>
+            <div class="stat-item">
+                <p class="stat-label">Maximum</p>
+                <p class="stat-value bad">{{ (stats.max_aqi or 0)|round(1) if stats else '—' }} PPM</p>
+            </div>
+            <div class="stat-item">
+                <p class="stat-label">Moyenne</p>
+                <p class="stat-value warn">{{ (stats.avg_aqi or 0)|round(1) if stats else '—' }} PPM</p>
+            </div>
+            <div class="stat-item">
+                <p class="stat-label">Mesures</p>
+                <p class="stat-value">{{ stats.total_readings if stats else '—' }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

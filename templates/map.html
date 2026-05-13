@@ -1,626 +1,103 @@
 {% extends "base.html" %}
-{% block title %}Carte GPS - Surveillance Qualité de l'Air{% endblock %}
+{% block title %}Carte — AirWatch{% endblock %}
 
-<!-- ========== SCRIPTS NÉCESSAIRES (Leaflet pour carte GPS, Socket.IO) ========== -->
-{% block extra_head_scripts %}
-    <!-- Leaflet CSS pour la carte GPS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- Leaflet JavaScript pour gérer la carte -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Socket.IO pour les mises à jour en temps réel -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-{% endblock %}
-
-<!-- ========== STYLES CSS SPÉCIFIQUES À LA CARTE ========== -->
 {% block extra_css %}
 <style>
-/* Conteneur principal de la carte */
-#map { 
-    height: calc(100vh - 200px);  /* Hauteur = 100% de l'écran moins 200px pour le header */
-    width: 100%; 
-    border-radius: var(--radius-xl); 
-    overflow: hidden; 
-    box-shadow: var(--shadow-xl); 
-}
-
-/* Boutons de contrôle de la carte (en haut à droite) */
-.map-controls { 
-    position: absolute; 
-    top: 20px; 
-    right: 20px; 
-    z-index: 1000;  /* Au-dessus de la carte */
-    display: flex; 
-    flex-direction: column; 
-    gap: var(--spacing-md); 
-}
-
-/* Style des boutons de contrôle */
-.control-button { 
-    background: var(--bg-secondary); 
-    border: 1px solid var(--bg-tertiary); 
-    padding: var(--spacing-md); 
-    border-radius: var(--radius-md); 
-    color: var(--text-primary); 
-    cursor: pointer; 
-    transition: all 0.3s ease; 
-    box-shadow: var(--shadow-md); 
-    min-width: 180px; 
-    text-align: left;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-}
-
-/* Effet au survol des boutons */
-.control-button:hover { 
-    background: var(--bg-tertiary); 
-    transform: translateY(-2px); 
-}
-
-/* Bouton actif (filtres) */
-.control-button.active { 
-    background: var(--accent-gradient); 
-    color: white; 
-}
-
-/* Légende de la carte (en bas à gauche) */
-.map-legend { 
-    position: absolute; 
-    bottom: 30px; 
-    left: 20px; 
-    background: var(--bg-secondary); 
-    border: 1px solid var(--bg-tertiary); 
-    padding: var(--spacing-lg); 
-    border-radius: var(--radius-md); 
-    box-shadow: var(--shadow-lg); 
-    z-index: 1000; 
-}
-
-/* Titre de la légende */
-.legend-title { 
-    font-weight: 600; 
-    margin-bottom: var(--spacing-md); 
-    font-size: 1rem; 
-}
-
-/* Élément de la légende (couleur + label) */
-.legend-item { 
-    display: flex; 
-    align-items: center; 
-    gap: var(--spacing-md); 
-    margin-bottom: var(--spacing-sm); 
-}
-
-/* Pastille de couleur dans la légende */
-.legend-color { 
-    width: 20px; 
-    height: 20px; 
-    border-radius: 50%; 
-    border: 2px solid rgba(255, 255, 255, 0.3); 
-}
-
-/* Label de la légende */
-.legend-label { 
-    font-size: 0.875rem; 
-    color: var(--text-secondary); 
-}
-
-/* Informations de localisation actuelle */
-.current-location-info { 
-    background: var(--bg-secondary); 
-    border: 1px solid var(--bg-tertiary); 
-    padding: var(--spacing-lg); 
-    border-radius: var(--radius-md); 
-    margin-bottom: var(--spacing-lg); 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    flex-wrap: wrap;
-    gap: var(--spacing-lg);
-}
-
-/* Conteneur des détails de localisation */
-.location-details { 
-    display: flex; 
-    gap: var(--spacing-xl); 
-    flex-wrap: wrap;
-}
-
-/* Élément de détail individuel */
-.location-item { 
-    display: flex; 
-    flex-direction: column; 
-}
-
-/* Label du détail */
-.location-label { 
-    font-size: 0.75rem; 
-    color: var(--text-muted); 
-    margin-bottom: var(--spacing-xs); 
-}
-
-/* Valeur du détail */
-.location-value { 
-    font-size: 1.125rem; 
-    font-weight: 600; 
-}
-
-/* Personnalisation du popup Leaflet */
-.leaflet-popup-content-wrapper { 
-    background: var(--bg-secondary); 
-    color: var(--text-primary); 
-    border-radius: var(--radius-md); 
-    box-shadow: var(--shadow-xl); 
-}
-
-.leaflet-popup-content { 
-    margin: var(--spacing-md); 
-}
-
-.popup-title { 
-    font-weight: 600; 
-    font-size: 1rem; 
-    margin-bottom: var(--spacing-sm); 
-}
-
-.popup-info { 
-    font-size: 0.875rem; 
-    color: var(--text-secondary); 
-    margin-bottom: var(--spacing-xs); 
-}
-
-.popup-aqi { 
-    display: inline-block; 
-    padding: var(--spacing-xs) var(--spacing-md); 
-    border-radius: var(--radius-sm); 
-    font-weight: 600; 
-    margin-top: var(--spacing-sm); 
-}
+    .map-wrap { padding: var(--spacing-xl); }
+    .legend {
+        display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; align-items: center;
+        background: var(--bg-secondary); border: 1px solid var(--bg-tertiary);
+        border-radius: var(--radius-lg); padding: var(--spacing-md) var(--spacing-lg);
+        margin-bottom: var(--spacing-lg); font-size: 0.8rem; color: var(--text-secondary);
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    .dot-lg { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .map-frame {
+        border-radius: var(--radius-xl); overflow: hidden; border: 1px solid var(--bg-tertiary);
+        background: #0f172a; min-height: 420px;
+    }
+    .map-frame iframe { display: block; width: 100%; height: 450px; border: 0; }
+    .station-title { margin: var(--spacing-xl) 0 var(--spacing-md); font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .station-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: var(--spacing-md);
+    }
+    .station-card {
+        background: var(--bg-secondary); border: 1px solid var(--bg-tertiary);
+        border-radius: var(--radius-md); padding: var(--spacing-md); text-align: center;
+    }
+    .station-card .lbl { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .station-card .val { font-weight: 700; margin-top: 0.25rem; font-size: 0.95rem; }
+    .map-empty { text-align: center; padding: 3rem; background: var(--bg-secondary); border-radius: var(--radius-xl); border: 1px dashed var(--bg-tertiary); }
+    .map-dual { margin-top: var(--spacing-md); padding: var(--spacing-md) var(--spacing-lg); background: var(--bg-secondary); border: 1px solid var(--bg-tertiary); border-radius: var(--radius-lg); font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6; }
+    .map-dual strong { color: var(--text-primary); }
+    .map-dual a { color: #a78bfa; }
+    .map-warn { margin-top: var(--spacing-sm); padding: 0.65rem 0.85rem; background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.35); border-radius: var(--radius-md); font-size: 0.8rem; color: #fbbf24; }
 </style>
 {% endblock %}
 
-<!-- ========== CONTENU PRINCIPAL ========== -->
 {% block content %}
-        <!-- En-tête de la page -->
-        <header class="header">
-            <div class="header-left">
-                <h2 class="page-title">Carte GPS en Temps Réel</h2>
-                <p class="page-subtitle">Visualisation géographique de la qualité de l'air</p>
-            </div>
-            <div class="header-right">
-                <div class="header-actions">
-                    <button class="icon-button" title="Notifications">
-                        <span class="notification-badge">3</span>
-                        <i class="fas fa-bell"></i>
-                    </button>
-                    <button class="icon-button" title="Paramètres">
-                        <i class="fas fa-cog"></i>
-                    </button>
-                    <div class="user-profile">
-                        <img src="https://ui-avatars.com/api/?name=Utilisateur&background=7C3AED&color=fff" alt="Utilisateur">
-                    </div>
-                </div>
-            </div>
-        </header>
+<header class="header">
+    <div class="header-left">
+        <h2 class="page-title">🗺️ Carte de pollution</h2>
+        <p class="page-subtitle">Localisation des capteurs et niveaux de qualité de l'air en temps réel</p>
+    </div>
+    <div class="header-right">
+        <span class="status-pill"><span class="dot" aria-hidden="true"></span> En ligne</span>
+    </div>
+</header>
 
-        <!-- Conteneur de la carte et ses contrôles -->
-        <div style="padding: var(--spacing-xl); position: relative;">
-            
-            <!-- ========== INFORMATIONS DE LOCALISATION ACTUELLE ========== -->
-            <div class="current-location-info">
-                <div class="location-details">
-                    <!-- Latitude -->
-                    <div class="location-item">
-                        <span class="location-label"><i class="fas fa-map-pin"></i> Latitude</span>
-                        <span class="location-value" id="currentLat">--</span>
-                    </div>
-                    <!-- Longitude -->
-                    <div class="location-item">
-                        <span class="location-label"><i class="fas fa-map-pin"></i> Longitude</span>
-                        <span class="location-value" id="currentLon">--</span>
-                    </div>
-                    <!-- Qualité de l'air -->
-                    <div class="location-item">
-                        <span class="location-label"><i class="fas fa-wind"></i> Qualité de l'Air</span>
-                        <span class="location-value" id="currentAqi">-- PPM</span>
-                    </div>
-                    <!-- Statut -->
-                    <div class="location-item">
-                        <span class="location-label"><i class="fas fa-info-circle"></i> Statut</span>
-                        <span class="location-value" id="currentStatus">Chargement...</span>
-                    </div>
-                </div>
-                <!-- Bouton pour centrer sur l'utilisateur -->
-                <button class="control-button" onclick="centerOnCurrentLocation()">
-                    <i class="fas fa-crosshairs"></i> Centrer sur Ma Position
-                </button>
-            </div>
-            
-            <!-- ========== CARTE GPS LEAFLET ========== -->
-            <div id="map"></div>
-            
-            <!-- ========== CONTRÔLES DE FILTRAGE (en haut à droite) ========== -->
-            <div class="map-controls">
-                <!-- Bouton : Afficher tous les points -->
-                <button class="control-button active" id="showAllBtn" onclick="toggleLayer('all')">
-                    <i class="fas fa-globe"></i> Tous les Points
-                </button>
-                <!-- Bouton : Qualité bonne uniquement -->
-                <button class="control-button" id="showGoodBtn" onclick="toggleLayer('good')">
-                    <i class="fas fa-check-circle" style="color: #00E400;"></i> Bonne Qualité
-                </button>
-                <!-- Bouton : Qualité modérée -->
-                <button class="control-button" id="showModerateBtn" onclick="toggleLayer('moderate')">
-                    <i class="fas fa-exclamation-circle" style="color: #FFFF00;"></i> Modérée
-                </button>
-                <!-- Bouton : Mauvaise qualité -->
-                <button class="control-button" id="showBadBtn" onclick="toggleLayer('bad')">
-                    <i class="fas fa-times-circle" style="color: #FF0000;"></i> Mauvaise Qualité
-                </button>
-            </div>
-            
-            <!-- ========== LÉGENDE DE LA CARTE (en bas à gauche) ========== -->
-            <div class="map-legend">
-                <div class="legend-title">Niveaux de Qualité de l'Air (PPM)</div>
-                <!-- Bon : 0-50 PPM -->
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #00E400;"></div>
-                    <span class="legend-label">Bon (0-50)</span>
-                </div>
-                <!-- Modéré : 51-100 PPM -->
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #FFFF00;"></div>
-                    <span class="legend-label">Modéré (51-100)</span>
-                </div>
-                <!-- Mauvais : 101-150 PPM -->
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #FF7E00;"></div>
-                    <span class="legend-label">Mauvais (101-150)</span>
-                </div>
-                <!-- Très mauvais : 151-200 PPM -->
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #FF0000;"></div>
-                    <span class="legend-label">Très Mauvais (151-200)</span>
-                </div>
-                <!-- Dangereux : 200+ PPM -->
-                <div class="legend-item">
-                    <div class="legend-color" style="background: #8F3F97;"></div>
-                    <span class="legend-label">Dangereux (200+)</span>
-                </div>
-            </div>
-        </div>
-{% endblock %}
+<div class="map-wrap">
+    <p class="legend" aria-label="Légende IQA">
+        <strong style="color:var(--text-primary);margin-right:0.5rem;">Légende — Niveaux IQA</strong>
+        <span><span class="dot-lg" style="background:#00e400;"></span> Bon (0–50)</span>
+        <span><span class="dot-lg" style="background:#ffff00;"></span> Modéré (51–100)</span>
+        <span><span class="dot-lg" style="background:#ff7e00;"></span> Mauvais GS (101–150)</span>
+        <span><span class="dot-lg" style="background:#ff0000;"></span> Mauvais (151–200)</span>
+        <span><span class="dot-lg" style="background:#8f3f97;"></span> Très mauvais (201–300)</span>
+        <span><span class="dot-lg" style="background:#7e0023;"></span> Dangereux (&gt;300)</span>
+    </p>
 
-<!-- ========== SCRIPTS JAVASCRIPT ========== -->
-{% block extra_scripts %}
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-    <script>
-        // ========== VARIABLES GLOBALES ========== 
-        let map;  // Objet carte Leaflet
-        let markers = [];  // Tableau de tous les marqueurs
-        let currentLocationMarker;  // Marqueur de la position actuelle de l'utilisateur
-        let activeFilter = 'all';  // Filtre actif ('all', 'good', 'moderate', 'bad')
-        
-        // ========== COORDONNÉES PAR DÉFAUT : CASABLANCA ========== 
-        const CASABLANCA = {
-            lat: 33.5731,  // Latitude de Casablanca
-            lon: -7.5898,  // Longitude de Casablanca
-            zoom: 13       // Niveau de zoom par défaut
-        };
-        
-        // ========== FONCTION : INITIALISER LA CARTE ========== 
-        function initMap() {
-            console.log('🗺️ Initialisation de la carte GPS...');
-            
-            // Créer la carte centrée sur Casablanca par défaut
-            map = L.map('map').setView([CASABLANCA.lat, CASABLANCA.lon], CASABLANCA.zoom);
-            
-            // Ajouter la couche de tuiles OpenStreetMap
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors',
-                maxZoom: 19
-            }).addTo(map);
-            
-            console.log('✓ Carte initialisée sur Casablanca');
-            
-            // Charger les données historiques pour afficher les points
-            loadHistoricalData();
-            
-            // Connexion WebSocket pour les mises à jour en temps réel
-            connectWebSocket();
-            
-            // Essayer de récupérer la position de l'utilisateur
-            getUserLocation();
-        }
-        
-        // ========== FONCTION : RÉCUPÉRER LA POSITION DE L'UTILISATEUR ========== 
-        function getUserLocation() {
-            // Vérifier si la géolocalisation est supportée par le navigateur
-            if ("geolocation" in navigator) {
-                console.log('📍 Demande de géolocalisation...');
-                
-                navigator.geolocation.getCurrentPosition(
-                    // Succès : position récupérée
-                    function(position) {
-                        const userLat = position.coords.latitude;
-                        const userLon = position.coords.longitude;
-                        
-                        console.log(`✓ Position utilisateur : [${userLat}, ${userLon}]`);
-                        
-                        // Centrer la carte sur la position de l'utilisateur
-                        map.setView([userLat, userLon], 14);
-                        
-                        // Ajouter un marqueur pour l'utilisateur
-                        addUserMarker(userLat, userLon);
-                        
-                        // Récupérer la qualité de l'air à cette position via l'API météo
-                        fetchAirQualityForLocation(userLat, userLon);
-                    },
-                    // Erreur : géolocalisation refusée ou échouée
-                    function(error) {
-                        console.warn('⚠ Géolocalisation non disponible:', error.message);
-                        console.log('→ Utilisation de Casablanca par défaut');
-                        // Charger les données pour Casablanca
-                        fetchAirQualityForLocation(CASABLANCA.lat, CASABLANCA.lon);
-                    },
-                    // Options de géolocalisation
-                    {
-                        enableHighAccuracy: true,  // Haute précision (utilise GPS si disponible)
-                        timeout: 5000,             // Timeout de 5 secondes
-                        maximumAge: 0              // Ne pas utiliser de position en cache
-                    }
-                );
-            } else {
-                console.warn('⚠ Géolocalisation non supportée par ce navigateur');
-                // Utiliser Casablanca par défaut
-                fetchAirQualityForLocation(CASABLANCA.lat, CASABLANCA.lon);
-            }
-        }
-        
-        // ========== FONCTION : AJOUTER UN MARQUEUR POUR L'UTILISATEUR ========== 
-        function addUserMarker(lat, lon) {
-            // Icône personnalisée pour l'utilisateur (pulsante bleu)
-            const userIcon = L.divIcon({
-                className: 'user-location-marker',
-                html: `<div style="
-                    width: 20px; 
-                    height: 20px; 
-                    border-radius: 50%; 
-                    background: #3B82F6; 
-                    border: 3px solid white; 
-                    box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
-                    animation: pulse 2s infinite;
-                "></div>`,
-                iconSize: [20, 20],
-                iconAnchor: [10, 10]
-            });
-            
-            currentLocationMarker = L.marker([lat, lon], { icon: userIcon }).addTo(map);
-            currentLocationMarker.bindPopup(`
-                <div class="popup-title"><i class="fas fa-map-marker-alt"></i> Votre Position</div>
-                <div class="popup-info">Latitude: ${lat.toFixed(6)}</div>
-                <div class="popup-info">Longitude: ${lon.toFixed(6)}</div>
-            `);
-        }
-        
-        // ========== FONCTION : RÉCUPÉRER LA QUALITÉ DE L'AIR POUR UNE POSITION ========== 
-        async function fetchAirQualityForLocation(lat, lon) {
-            try {
-                // Appeler l'API pour récupérer la qualité de l'air
-                const response = await fetch(`/api/weather?lat=${lat}&lon=${lon}`);
-                const data = await response.json();
-                
-                if (data.success && data.weather) {
-                    // Mettre à jour les informations affichées
-                    document.getElementById('currentLat').textContent = lat.toFixed(6);
-                    document.getElementById('currentLon').textContent = lon.toFixed(6);
-                    document.getElementById('currentStatus').textContent = data.weather.city || 'Inconnu';
-                }
-            } catch (error) {
-                console.error('Erreur récupération qualité air:', error);
-            }
-        }
-        
-        // ========== FONCTION : DÉTERMINER LA COULEUR SELON L'AQI ========== 
-        function getMarkerColor(aqi) {
-            if (aqi <= 50) return '#00E400';       // Bon (vert)
-            if (aqi <= 100) return '#FFFF00';      // Modéré (jaune)
-            if (aqi <= 150) return '#FF7E00';      // Mauvais (orange)
-            if (aqi <= 200) return '#FF0000';      // Très mauvais (rouge)
-            return '#8F3F97';                      // Dangereux (violet)
-        }
-        
-        // ========== FONCTION : DÉTERMINER LE NIVEAU DE QUALITÉ ========== 
-        function getAqiLevel(aqi) {
-            if (aqi <= 50) return 'Bon';
-            if (aqi <= 100) return 'Modéré';
-            if (aqi <= 150) return 'Mauvais';
-            if (aqi <= 200) return 'Très Mauvais';
-            return 'Dangereux';
-        }
-        
-        // ========== FONCTION : CRÉER UNE ICÔNE DE MARQUEUR PERSONNALISÉE ========== 
-        function createMarkerIcon(color, isCurrent) {
-            const size = isCurrent ? 20 : 15;  // Marqueur actuel plus grand
-            return L.divIcon({
-                className: 'custom-marker',
-                html: `<div style="
-                    background: ${color}; 
-                    width: ${size}px; 
-                    height: ${size}px; 
-                    border-radius: 50%; 
-                    border: 3px solid white; 
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-                "></div>`,
-                iconSize: [size, size],
-                iconAnchor: [size/2, size/2]
-            });
-        }
-        
-        // ========== FONCTION : AJOUTER UN MARQUEUR SUR LA CARTE ========== 
-        function addMarker(lat, lon, aqi, timestamp, isCurrent) {
-            if (!lat || !lon) return;  // Ignorer si coordonnées invalides
-            
-            const color = getMarkerColor(aqi);
-            const level = getAqiLevel(aqi);
-            const icon = createMarkerIcon(color, isCurrent);
-            
-            // Créer le marqueur
-            const marker = L.marker([lat, lon], { icon: icon }).addTo(map);
-            
-            // Ajouter un popup avec les informations
-            marker.bindPopup(`
-                <div class="popup-title">${isCurrent ? '<i class="fas fa-map-marker-alt"></i> Position Actuelle' : '<i class="fas fa-map-pin"></i> Point de Mesure'}</div>
-                <div class="popup-info"><i class="far fa-clock"></i> ${new Date(timestamp).toLocaleString('fr-FR')}</div>
-                <div class="popup-info"><i class="fas fa-wind"></i> Qualité de l'Air: ${aqi.toFixed(2)} PPM</div>
-                <div class="popup-aqi" style="background: ${color}; color: ${color === '#FFFF00' ? '#000' : '#fff'};">${level}</div>
-            `);
-            
-            // Ajouter au tableau de marqueurs avec son niveau
-            markers.push({ 
-                marker: marker, 
-                aqi: aqi, 
-                level: level.toLowerCase().replace(/\s+/g, '_')  // "Très Mauvais" → "très_mauvais"
-            });
-            
-            // Si c'est le marqueur actuel, l'ouvrir automatiquement
-            if (isCurrent) {
-                currentLocationMarker = marker;
-                marker.openPopup();
-            }
-        }
-        
-        // ========== FONCTION : CHARGER LES DONNÉES HISTORIQUES ========== 
-        async function loadHistoricalData() {
-            try {
-                const response = await fetch('/api/history?hours=24&limit=50');
-                const result = await response.json();
-                
-                if (result.success && result.data && result.data.locations && result.data.locations.length > 0) {
-                    // Ajouter chaque point de mesure sur la carte
-                    result.data.locations.forEach(loc => {
-                        if (loc.lat && loc.lon) {
-                            addMarker(loc.lat, loc.lon, loc.aqi, loc.timestamp, false);
-                        }
-                    });
-                    
-                    console.log(`✓ ${result.data.locations.length} points ajoutés à la carte`);
-                } else {
-                    console.log('⚠ Aucune donnée historique disponible');
-                }
-            } catch (error) {
-                console.error('Erreur chargement données:', error);
-            }
-        }
-        
-        // ========== FONCTION : METTRE À JOUR LA POSITION ACTUELLE ========== 
-        function updateCurrentLocation(data) {
-            if (!data.location || !data.location.latitude || !data.location.longitude) return;
-            
-            const lat = data.location.latitude;
-            const lon = data.location.longitude;
-            const aqi = data.air_quality.value;
-            
-            // Mettre à jour l'affichage des informations
-            document.getElementById('currentLat').textContent = lat.toFixed(6);
-            document.getElementById('currentLon').textContent = lon.toFixed(6);
-            document.getElementById('currentAqi').textContent = aqi.toFixed(2) + ' PPM';
-            document.getElementById('currentStatus').textContent = data.air_quality.level;
-            document.getElementById('currentStatus').style.color = data.air_quality.color;
-            
-            // Supprimer l'ancien marqueur actuel
-            if (currentLocationMarker) {
-                map.removeLayer(currentLocationMarker);
-            }
-            
-            // Ajouter le nouveau marqueur
-            addMarker(lat, lon, aqi, data.timestamp, true);
-            
-            // Centrer la carte sur la nouvelle position
-            map.setView([lat, lon], 15);
-        }
-        
-        // ========== FONCTION : CENTRER SUR LA POSITION ACTUELLE ========== 
-        function centerOnCurrentLocation() {
-            if (currentLocationMarker) {
-                map.setView(currentLocationMarker.getLatLng(), 15);
-                currentLocationMarker.openPopup();
-            } else {
-                alert('Position actuelle non disponible');
-            }
-        }
-        
-        // ========== FONCTION : FILTRER LES MARQUEURS PAR NIVEAU DE QUALITÉ ========== 
-        function toggleLayer(filter) {
-            activeFilter = filter;
-            
-            // Mettre à jour les boutons (retirer 'active' de tous, l'ajouter au cliqué)
-            document.querySelectorAll('.map-controls .control-button').forEach(btn => btn.classList.remove('active'));
-            
-            // Trouver le bon bouton selon le filtre
-            const buttonId = filter === 'all' ? 'showAllBtn' : 
-                            filter === 'good' ? 'showGoodBtn' : 
-                            filter === 'moderate' ? 'showModerateBtn' : 
-                            'showBadBtn';
-            document.getElementById(buttonId).classList.add('active');
-            
-            // Afficher/masquer les marqueurs selon le filtre
-            markers.forEach(({ marker, level }) => {
-                if (filter === 'all') {
-                    // Afficher tous les marqueurs
-                    marker.addTo(map);
-                } else if (filter === 'good' && level === 'bon') {
-                    marker.addTo(map);
-                } else if (filter === 'moderate' && level === 'modéré') {
-                    marker.addTo(map);
-                } else if (filter === 'bad' && (level === 'mauvais' || level === 'très_mauvais' || level === 'dangereux')) {
-                    marker.addTo(map);
-                } else {
-                    // Retirer le marqueur de la carte
-                    map.removeLayer(marker);
-                }
-            });
-            
-            console.log(`Filtre appliqué : ${filter}`);
-        }
-        
-        // ========== FONCTION : CONNECTER AU WEBSOCKET ========== 
-        function connectWebSocket() {
-            const socket = io();
-            
-            // Écouter les mises à jour de capteurs
-            socket.on('sensor_update', updateCurrentLocation);
-            
-            // Demander les données actuelles
-            socket.emit('request_data');
-            
-            console.log('✓ WebSocket connecté');
-        }
-        
-        // ========== INITIALISATION AU CHARGEMENT DE LA PAGE ========== 
-        document.addEventListener('DOMContentLoaded', () => {
-            initMap();
-            
-            // Récupérer les données actuelles via l'API
-            fetch('/api/current')
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success) {
-                        updateCurrentLocation(data);
-                    }
-                })
-                .catch(console.error);
-        });
-        
-        // ========== STYLE CSS POUR L'ANIMATION DE PULSATION ========== 
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes pulse {
-                0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-                50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
-                100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-            }
-        `;
-        document.head.appendChild(style);
-    </script>
+    {% if locations and locations|length > 0 and map_info %}
+    <div class="map-frame">
+        <iframe title="Carte OpenStreetMap"
+            src="https://www.openstreetmap.org/export/embed.html?bbox={{ map_info.lon - 0.02 }}%2C{{ map_info.lat - 0.02 }}%2C{{ map_info.lon + 0.02 }}%2C{{ map_info.lat + 0.02 }}&amp;layer=mapnik&amp;mlat={{ map_info.lat }}&amp;mlon={{ map_info.lon }}">
+        </iframe>
+    </div>
+
+    {% if map_extra %}
+    <div class="map-dual">
+        <strong>{{ map_extra.city_name }}</strong> (météo / référence carte) : {{ '%.4f'|format(map_extra.ref_lat) }}, {{ '%.4f'|format(map_extra.ref_lon) }}
+        — <a href="https://www.openstreetmap.org/?mlat={{ map_extra.ref_lat }}&mlon={{ map_extra.ref_lon }}#map=14/{{ map_extra.ref_lat }}/{{ map_extra.ref_lon }}" target="_blank" rel="noopener noreferrer">Ouvrir dans OSM</a>
+        {% if map_extra.sensor_lat is not none and map_extra.sensor_lon is not none %}
+        <br><strong>Capteur GPS</strong> : {{ '%.4f'|format(map_extra.sensor_lat) }}, {{ '%.4f'|format(map_extra.sensor_lon) }}
+        — <a href="https://www.openstreetmap.org/?mlat={{ map_extra.sensor_lat }}&mlon={{ map_extra.sensor_lon }}#map=14/{{ map_extra.sensor_lat }}/{{ map_extra.sensor_lon }}" target="_blank" rel="noopener noreferrer">Ouvrir dans OSM</a>
+        {% if map_extra.sensor_distance_km is not none %}
+        <span style="color:var(--text-muted);"> (≈ {{ map_extra.sensor_distance_km }} km du centre météo)</span>
+        {% endif %}
+        {% endif %}
+    </div>
+    {% if map_extra.gps_ignored %}
+    <p class="map-warn">Le GPS capteur est très loin de la ville météo : la carte reste centrée sur <strong>{{ map_extra.city_name }}</strong>. Pour forcer le GPS, mettez <code>MAP_FOLLOW_GPS=true</code> dans le fichier <code>.env</code>.</p>
+    {% endif %}
+    {% endif %}
+
+    <h3 class="station-title">📍 Station active</h3>
+    <div class="station-row">
+        <div class="station-card"><div class="lbl">Latitude</div><div class="val">{{ '%.4f'|format(map_info.lat) }}</div></div>
+        <div class="station-card"><div class="lbl">Longitude</div><div class="val">{{ '%.4f'|format(map_info.lon) }}</div></div>
+        <div class="station-card"><div class="lbl">Qualité de l'air</div><div class="val">{{ map_info.ppm }} PPM</div></div>
+        <div class="station-card"><div class="lbl">Niveau</div><div class="val">{{ map_info.level }}</div></div>
+        <div class="station-card"><div class="lbl">Température</div><div class="val">{{ map_info.temp }}°C</div></div>
+        <div class="station-card"><div class="lbl">Humidité</div><div class="val">{{ map_info.humidity }}%</div></div>
+    </div>
+    {% else %}
+    <div class="map-empty">
+        <i class="fas fa-map-location-dot" style="font-size:3rem;color:var(--text-muted);margin-bottom:1rem;"></i>
+        <h3>Aucune position disponible</h3>
+        <p style="color:var(--text-secondary);">Enregistrez des lectures GPS pour afficher la carte.</p>
+    </div>
+    {% endif %}
+</div>
 {% endblock %}

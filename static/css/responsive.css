@@ -1,0 +1,76 @@
+/* Responsive Design for AirWatch Dashboard */
+
+/* Tablettes et petits ordinateurs */
+@media (max-width: 1024px) {
+    .sidebar {
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+    }
+    
+    .sidebar.open {
+        transform: translateX(0);
+    }
+    
+    .main-content {
+        margin-left: 0 !important;
+    }
+    
+    .mobile-header {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--spacing-md) var(--spacing-lg);
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--bg-tertiary);
+        position: sticky;
+        top: 0;
+        z-index: 999;
+    }
+    
+    .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+    
+    .weather-card, .aqi-card, .overview-card, .forecast-card, .alerts-card, .stats-card {
+        grid-column: span 2 !important;
+    }
+}
+
+/* Téléphones mobiles */
+@media (max-width: 640px) {
+    .dashboard-grid {
+        grid-template-columns: 1fr !important;
+        padding: var(--spacing-md) !important;
+    }
+    
+    .weather-card, .aqi-card, .overview-card, .forecast-card, .alerts-card, .stats-card {
+        grid-column: span 1 !important;
+    }
+    
+    .aqi-gauge-static {
+        width: 150px !important;
+        height: 150px !important;
+    }
+    
+    .aqi-value-large {
+        font-size: 2.5rem !important;
+    }
+    
+    .metrics-grid {
+        grid-template-columns: 1fr !important;
+    }
+    
+    .header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: var(--spacing-md);
+    }
+    
+    .forecast-item {
+        flex-wrap: wrap;
+    }
+    
+    .forecast-date {
+        min-width: 80px !important;
+    }
+}

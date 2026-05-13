@@ -16,26 +16,6 @@ class Config:
         'db_path': os.getenv('DB_PATH', './data/air_quality.db')
     }
     
-    # ============= CONFIGURATION MQTT/IoT =============
-    MQTT_CONFIG = {
-        'broker': os.getenv('MQTT_BROKER', 'broker.hivemq.com'),
-        'port': int(os.getenv('MQTT_PORT', 1883)),
-        'topic': os.getenv('MQTT_TOPIC', 'air_quality/sensor_data'),
-        'client_id': os.getenv('MQTT_CLIENT_ID', 'raspberry_pi_air_sensor'),
-        'username': os.getenv('MQTT_USERNAME', ''),
-        'password': os.getenv('MQTT_PASSWORD', ''),
-        'keepalive': 60
-    }
-    
-    # ============= CONFIGURATION AWS IoT (Optionnel) =============
-    AWS_IOT_CONFIG = {
-        'endpoint': os.getenv('AWS_IOT_ENDPOINT', ''),
-        'client_id': os.getenv('AWS_IOT_CLIENT_ID', 'raspberry_pi_sensor'),
-        'cert_path': os.getenv('AWS_IOT_CERT_PATH', ''),
-        'key_path': os.getenv('AWS_IOT_KEY_PATH', ''),
-        'root_ca_path': os.getenv('AWS_IOT_ROOT_CA_PATH', '')
-    }
-    
     # ============= CONFIGURATION DES CAPTEURS (GPIO) =============
     SENSOR_CONFIG = {
         'dht11_pin': int(os.getenv('DHT11_PIN', 4)),
@@ -72,6 +52,16 @@ class Config:
         'enabled': bool(os.getenv('SMTP_USERNAME'))
     }
     
+    # ============= LOCALISATION (carte / météo par défaut) =============
+    # Centre carte : météo OpenWeather (ville ci-dessous) sauf si MAP_FOLLOW_GPS=true
+    WEATHER_DEFAULT_QUERY = os.getenv('WEATHER_DEFAULT_QUERY', 'Casablanca,MA')
+    MAP_CENTER_LAT = float(os.getenv('MAP_CENTER_LAT', '33.5731'))
+    MAP_CENTER_LON = float(os.getenv('MAP_CENTER_LON', '-7.5898'))
+    # true = toujours centrer sur le GPS capteur (même si incohérent)
+    MAP_FOLLOW_GPS = os.getenv('MAP_FOLLOW_GPS', 'false').lower() in ('1', 'true', 'yes')
+    # Si le GPS est à plus de X km du centre météo / ville, on ignore le GPS (ex. faux fix Tunis)
+    MAP_GPS_MAX_DISTANCE_KM = float(os.getenv('MAP_GPS_MAX_DISTANCE_KM', '320'))
+
     # ============= PARAMÈTRES DU MODÈLE ML =============
     ML_CONFIG = {
         'model_path': './models/air_quality_model.pkl',
@@ -85,6 +75,41 @@ class Config:
     NASA_CONFIG = {
         # Essayez d'abord une variable standard, puis retombez sur l'entrée existante du .env
         'api_key': os.getenv('NASA_API_KEY', os.getenv('nasaapi', ''))
+    }
+    
+    # ============= CONFIGURATION HUGGING FACE (Assistant IA) =============
+    # Modèle : carte Hub « Inference » / petits instruct (voir https://huggingface.co/models )
+    # Défaut : SmolLM2-1.7B-Instruct — léger, adapté au routeur serverless HF.
+    HF_CONFIG = {
+        'api_key': os.getenv('HF_API_KEY', ''),
+        'chat_model': os.getenv(
+            'HF_CHAT_MODEL',
+            'HuggingFaceTB/SmolLM2-1.7B-Instruct',
+        ),
+        'chat_url': os.getenv(
+            'HF_CHAT_URL',
+            'https://router.huggingface.co/v1/chat/completions',
+        ),
+    }
+
+    # ============= OPENAI (repli assistant si Hugging Face renvoie 404 / erreur) =============
+    OPENAI_CONFIG = {
+        'api_key': os.getenv('OPENAI_API_KEY', ''),
+        'chat_model': os.getenv('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+        'chat_url': os.getenv(
+            'OPENAI_CHAT_URL',
+            'https://api.openai.com/v1/chat/completions',
+        ),
+    }
+
+    # Groq (API compatible OpenAI, compte gratuit sur console.groq.com) — utile si HF renvoie 404
+    GROQ_CONFIG = {
+        'api_key': os.getenv('GROQ_API_KEY', ''),
+        'chat_model': os.getenv('GROQ_CHAT_MODEL', 'llama-3.1-70b-versatile'),
+        'chat_url': os.getenv(
+            'GROQ_CHAT_URL',
+            'https://api.groq.com/openai/v1/chat/completions',
+        ),
     }
     
     @staticmethod

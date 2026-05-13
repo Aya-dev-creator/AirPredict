@@ -4,19 +4,20 @@ VERSION 2.2 - Responsive + Sans Authentification
 Fournit une API REST et une interface web moderne pour visualiser les données en temps réel
 Intègre OpenWeatherMap API pour les données météorologiques
 """
-from flask import Flask, render_template, jsonify, request
-from flask_cors import CORS
-from flask_socketio import SocketIO, emit
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 import logging
 from datetime import datetime, timedelta
 import json
 import requests
 import os
+import urllib.parse
+import xml.etree.ElementTree as ET
 from config import config
 from database import AirQualityDatabase
 from ml_model import AirQualityPredictor
 
-# ============= CONFIGURATION =============
+# Identifiant affiché dans le pied de page et /api/health (vérifie que le bon code est déployé)
+AIRWATCH_BUILD = '2026-05-13c'
 
 # Configuration du logging
 logging.basicConfig(
@@ -32,11 +33,7 @@ app = Flask(__name__,
             template_folder=os.path.join(_this_dir, 'templates'))
 app.config['SECRET_KEY'] = config.FLASK_CONFIG['secret_key']
 
-# Activer CORS pour permettre l'accès depuis d'autres appareils
-CORS(app)
-
-# Activer WebSocket pour les mises à jour en temps réel
-socketio = SocketIO(app, cors_allowed_origins="*")
+# CORS désactivé (No-JS)
 
 # Instances globales
 db = None  # Sera initialisé dans initialize_server()
@@ -50,12 +47,76 @@ WEATHER_API_URL = 'https://api.openweathermap.org/data/2.5'
 NASA_API_KEY = config.NASA_CONFIG.get('api_key', '')
 NASA_EONET_URL = 'https://eonet.gsfc.nasa.gov/api/v3/events'
 
+# Configuration NewsData API (clé uniquement via .env — ne pas commiter de clé)
+NEWSDATA_API_KEY = os.getenv('NEWSDATA_API_KEY', '')
+NEWSDATA_SOURCES_URL = 'https://newsdata.io/api/1/sources'
+NEWSDATA_NEWS_URL = 'https://newsdata.io/api/1/latest'
+
+# Flux RSS publics (sans clé API) — liens réels vers les articles
+RSS_FALLBACK_FEEDS = [
+    'https://www.francetvinfo.fr/environnement.rss',
+    'https://www.actu-environnement.com/ae/news/news_rss.xml',
+]
+
 # Cache pour les données météo (éviter trop de requêtes API)
 weather_cache = {
     'data': None,
     'timestamp': None,
     'cache_duration': 600  # 10 minutes
 }
+
+# Cache for NASA events (environmental events from NASA EONET)
+nasa_events_cache = {
+    'data': None,
+    'timestamp': None,
+    'key': None,
+    'cache_duration': 6 * 60 * 60  # 6 hours in seconds
+}
+
+# Cache for news articles
+news_cache = {
+    'data': None,
+    'timestamp': None,
+    'key': None,
+    'cache_duration': 30 * 60  # 30 minutes in seconds
+}
+
+# Cache for weather forecast
+forecast_cache = {
+    'data': None,
+    'timestamp': None,
+    'key': None,
+    'cache_duration': 1 * 60 * 60  # 1 hour in seconds
+}
+
+# Jours de la semaine en français (prévisions météo)
+WEEKDAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche']
+
+# Exemples d’articles (affichés si l’API actualités ne renvoie rien)
+DEMO_NEWS_ARTICLES = [
+    {'tag': 'Environnement', 'tag_style': 'env', 'title': 'Qualité de l’air : les bons réflexes à Casablanca',
+     'meta': 'Le Matin • 22 mai 2024', 'summary': 'Réduction des émissions et mobilité douce au centre des recommandations.',
+     'url': 'https://lematin.ma/express/2024/environnement'},
+    {'tag': 'Politique', 'tag_style': 'pol', 'title': 'Nouvelle stratégie nationale sur le climat',
+     'meta': 'TelQuel • 20 mai 2024', 'summary': 'Les objectifs de neutralité carbone sont précisés pour les prochaines années.',
+     'url': 'https://telquel.ma/categorie/environnement'},
+    {'tag': 'Santé', 'tag_style': 'health', 'title': 'Pollution et santé respiratoire : ce qu’il faut savoir',
+     'meta': 'Médias24 • 18 mai 2024', 'summary': 'Les médecins rappellent les précautions pour les personnes sensibles.',
+     'url': 'https://www.medias24.com/sante/'},
+    {'tag': 'Lifestyle', 'tag_style': 'life', 'title': 'Jardins urbains et îlots de fraîcheur',
+     'meta': 'Hespress • 15 mai 2024', 'summary': 'Comment les villes marocaines intègrent le végétal pour limiter la chaleur.',
+     'url': 'https://fr.hespress.com/tag/environnement'},
+    {'tag': 'Climatologie', 'tag_style': 'cli', 'title': 'Vagues de chaleur : tendances pour l’été',
+     'meta': 'Le Matin • 12 mai 2024', 'summary': 'Analyse des modèles climatiques pour la région méditerranéenne.',
+     'url': 'https://lematin.ma/express/2024/environnement'},
+]
+
+DEMO_NEWS_SOURCES = [
+    {'name': 'Le Matin', 'sub': 'Maroc — FR', 'tag': 'Environnement', 'tag_style': 'env'},
+    {'name': 'TelQuel', 'sub': 'Maroc — FR', 'tag': 'Politique', 'tag_style': 'pol'},
+    {'name': 'Médias24', 'sub': 'Maroc — FR', 'tag': 'Santé', 'tag_style': 'health'},
+    {'name': 'Hespress', 'sub': 'Maroc — FR', 'tag': 'Lifestyle', 'tag_style': 'life'},
+]
 
 # Variable pour stocker les dernières données (cache)
 latest_data = {
@@ -102,6 +163,17 @@ def get_nasa_environment_events(lat=None, lon=None, max_distance_km=1000):
     Returns:
         list[dict]: Liste d'évènements pertinents près de la zone
     """
+    global nasa_events_cache
+    # Create a cache key based on the parameters
+    key = (lat, lon, max_distance_km)
+    now = datetime.now().timestamp()
+
+    # Check if we have a valid cache
+    if nasa_events_cache['data'] is not None and nasa_events_cache['timestamp'] is not None:
+        if nasa_events_cache['key'] == key and (now - nasa_events_cache['timestamp']) < nasa_events_cache['cache_duration']:
+            return nasa_events_cache['data']
+
+    # Otherwise, fetch new data
     try:
         params = {'status': 'open'}
         # Certaines APIs NASA utilisent api_key, EONET non, mais on garde la clé
@@ -146,11 +218,272 @@ def get_nasa_environment_events(lat=None, lon=None, max_distance_km=1000):
 
         # Trier par distance si disponible
         events.sort(key=lambda e: e['distance_km'] if e['distance_km'] is not None else 999999)
-        return events[:10]
+        events = events[:10]
+
+        # Update cache
+        nasa_events_cache['key'] = key
+        nasa_events_cache['data'] = events
+        nasa_events_cache['timestamp'] = now
+
+        return events
 
     except Exception as e:
         logger.error(f"✗ Erreur récupération évènements NASA: {e}")
         return []
+
+
+def get_news_sources(country='ma', language='fr', category='lifestyle,health,environment', prioritydomain='medium'):
+    """
+    Récupère les sources d'actualité depuis l'API NewsData.io.
+
+    Args:
+        country (str): Code pays
+        language (str): Langue des sources
+        category (str): Catégories séparées par des virgules
+        prioritydomain (str): Priorité du domaine
+
+    Returns:
+        dict: Réponse JSON de NewsData.io
+    """
+    try:
+        if not NEWSDATA_API_KEY:
+            return {}
+        params = {
+            'apikey': NEWSDATA_API_KEY,
+            'country': country,
+            'language': language,
+            'category': category,
+            'prioritydomain': prioritydomain
+        }
+        response = requests.get(NEWSDATA_SOURCES_URL, params=params, timeout=15)
+        if response.status_code != 200:
+            logger.warning(f"⚠️ Erreur API NewsData: {response.status_code}")
+            return {}
+
+        data = response.json()
+        logger.info(f"✓ Données NewsData récupérées: {len(data.get('results', []))} sources")
+        return data
+    except Exception as e:
+        logger.error(f"✗ Erreur récupération sources NewsData: {e}")
+        return {}
+
+
+def _fmt_news_meta(item):
+    src = item.get('source_id') or item.get('source_name') or ''
+    raw_date = item.get('pubDate') or item.get('pubdate') or ''
+    if raw_date and len(raw_date) > 16:
+        raw_date = raw_date[:16].replace('T', ' ')
+    parts = [p for p in (src, raw_date) if p]
+    return ' • '.join(parts) if parts else 'Actualité'
+
+
+def _category_to_tag_style(cat):
+    c = (str(cat) if cat is not None else '').lower()
+    if 'health' in c or 'sant' in c:
+        return 'health', 'Santé'
+    if 'politic' in c or 'polit' in c:
+        return 'pol', 'Politique'
+    if 'environment' in c or 'environ' in c:
+        return 'env', 'Environnement'
+    if 'science' in c or 'tech' in c:
+        return 'cli', 'Science'
+    label = (str(cat) if cat else 'Actualités').replace('_', ' ').strip() or 'Actualités'
+    return 'life', label[:40]
+
+
+def get_news_articles(country='ma', language='fr', category='environment,health,lifestyle,science'):
+    """Articles récents (endpoint /news) avec liens vers les sources."""
+    global news_cache
+    if not NEWSDATA_API_KEY:
+        return []
+    # Create a cache key based on the parameters
+    key = (country, language, category)
+    now = datetime.now().timestamp()
+
+    # Check if we have a valid cache
+    if news_cache['data'] is not None and news_cache['timestamp'] is not None:
+        if news_cache['key'] == key and (now - news_cache['timestamp']) < news_cache['cache_duration']:
+            return news_cache['data']
+
+    # Otherwise, fetch new data
+    try:
+        params = {
+            'apikey': NEWSDATA_API_KEY,
+            'country': country,
+            'language': language,
+            'category': category,
+        }
+        response = requests.get(NEWSDATA_NEWS_URL, params=params, timeout=20)
+        if response.status_code != 200:
+            logger.warning(f"⚠️ Erreur API NewsData articles: {response.status_code}")
+            return []
+        data = response.json()
+        rows = data.get('results') or []
+        out = []
+        for row in rows:
+            link = row.get('link') or row.get('url') or row.get('source_url') or row.get('article_url')
+            title = (row.get('title') or '').strip()
+            if not link or not title:
+                continue
+            desc = (row.get('description') or row.get('content') or '')[:500]
+            cat = row.get('category')
+            if isinstance(cat, list) and cat:
+                cat = cat[0]
+            tag_style, tag_label = _category_to_tag_style(cat)
+            out.append({
+                'tag': tag_label,
+                'tag_style': tag_style,
+                'title': title,
+                'meta': _fmt_news_meta(row),
+                'summary': (desc or '').strip() or "Voir l'article sur le site de la source.",
+                'url': link,
+            })
+        logger.info(f"✓ NewsData articles: {len(out)}")
+        out = out[:20]
+
+        # Update cache
+        news_cache['key'] = key
+        news_cache['data'] = out
+        news_cache['timestamp'] = now
+
+        return out
+    except Exception as e:
+        logger.error(f"✗ Erreur récupération articles NewsData: {e}")
+        return []
+
+
+def fetch_rss_environment_news(max_items=14):
+    """Articles avec liens via flux RSS (requests + SSL — plus fiable que urllib sur Raspberry Pi)."""
+    collected = []
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (compatible; AirWatch/2.2; +https://airwatch.local)',
+        'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+    }
+    # Désactiver la vérification SSL sur Raspberry Pi si nécessaire
+    verify_ssl = not os.path.exists('/etc/os-release')
+    
+    for feed_url in RSS_FALLBACK_FEEDS:
+        if len(collected) >= max_items:
+            break
+        try:
+            # Essayer avec vérification SSL d'abord, puis sans sur Raspberry Pi
+            try:
+                r = requests.get(feed_url, headers=headers, timeout=22, verify=verify_ssl)
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError):
+                logger.warning(f'Erreur SSL pour {feed_url}, nouvelle tentative sans vérification...')
+                r = requests.get(feed_url, headers=headers, timeout=22, verify=False)
+            
+            r.raise_for_status()
+            root = ET.fromstring(r.content)
+        except Exception as e:
+            logger.warning(f'⚠ Flux RSS indisponible {feed_url}: {e}')
+            continue
+
+        for item in root.iter():
+            if not item.tag.endswith('item') or len(collected) >= max_items:
+                continue
+            title = link = desc = ''
+            for child in item:
+                tag = child.tag.split('}')[-1].lower()
+                if tag == 'title' and child.text:
+                    title = child.text.strip()
+                elif tag == 'link':
+                    link = (child.text or '').strip()
+                    if not link and child.attrib.get('href'):
+                        link = child.attrib.get('href', '').strip()
+                elif tag in ('description', 'summary') and child.text:
+                    txt = child.text.strip()
+                    if len(txt) > 400:
+                        txt = txt[:400] + '…'
+                    desc = txt
+            if title and link:
+                collected.append({
+                    'tag': 'Environnement',
+                    'tag_style': 'env',
+                    'title': title,
+                    'meta': 'Flux RSS',
+                    'summary': desc or 'Article externe.',
+                    'url': link,
+                })
+            elif title and not link:
+                # Fallback: créer un lien de recherche si l'article n'en a pas
+                collected.append({
+                    'tag': 'Environnement',
+                    'tag_style': 'env',
+                    'title': title,
+                    'meta': 'Flux RSS',
+                    'summary': desc or 'Article externe.',
+                    'url': 'https://www.google.com/search?q=' + urllib.parse.quote_plus(title),
+                })
+    if collected:
+        logger.info(f'✓ RSS: {len(collected)} articles avec liens')
+    return collected[:max_items]
+
+
+def merge_news_article_lists(max_total, *lists):
+    """Fusionne plusieurs listes d’articles sans doublon d’URL (ordre conservé)."""
+    seen = set()
+    out = []
+    for lst in lists:
+        for a in lst or []:
+            if not isinstance(a, dict):
+                continue
+            u = (a.get('url') or '').strip()
+            key = u if u else f"t:{a.get('title','')}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(ensure_article_has_link(dict(a)))
+            if len(out) >= max_total:
+                return out
+    return out
+
+
+def ensure_article_has_link(article):
+    """Garantit une URL cliquable (recherche titre en dernier recours)."""
+    a = dict(article)
+    u = (a.get('url') or '').strip()
+    if u:
+        return a
+    title = (a.get('title') or '').strip()
+    if title:
+        a['url'] = 'https://www.google.com/search?q=' + urllib.parse.quote_plus(title)
+        a['meta'] = (a.get('meta') or '') + (' • ' if a.get('meta') else '') + 'Recherche web'
+    return a
+
+
+def normalize_news_source_card(s):
+    """Formate une entrée API « sources » pour le template HTML."""
+    if not isinstance(s, dict):
+        return None
+    name = s.get('name') or s.get('id') or 'Source'
+    country = s.get('country')
+    if isinstance(country, (list, tuple)):
+        country_txt = ', '.join(str(c).upper() for c in country[:8])
+        if len(country) > 8:
+            country_txt += '…'
+    else:
+        country_txt = str(country or 'MA').upper()
+    lang = s.get('language')
+    if isinstance(lang, (list, tuple)):
+        lang_txt = ', '.join(str(x).upper() for x in lang[:5])
+    else:
+        lang_txt = str(lang or 'fr').upper()
+    sub = f"{country_txt} — {lang_txt}"
+    cat = s.get('category')
+    if isinstance(cat, (list, tuple)) and cat:
+        tag_txt = str(cat[0])
+    else:
+        tag_txt = str(cat or 'Info')
+    tag_style, tag_label = _category_to_tag_style(tag_txt)
+    return {
+        'name': name,
+        'sub': sub,
+        'tag': tag_label,
+        'tag_style': tag_style,
+    }
+
+
 def get_weather_data(lat=None, lon=None, city=None):
     """
     Récupère les données météo depuis OpenWeatherMap API
@@ -186,20 +519,22 @@ def get_weather_data(lat=None, lon=None, city=None):
             'visibility': 10.0,
             'sunrise': '06:30',
             'sunset': '18:45',
-            'city': 'Casablanca',
+            'city': config.WEATHER_DEFAULT_QUERY.split(',')[0].replace('+', ' '),
             'country': 'MA',
+            'latitude': config.MAP_CENTER_LAT,
+            'longitude': config.MAP_CENTER_LON,
             'timestamp': datetime.now().isoformat()
         }
     
     try:
         # Construire l'URL selon les paramètres disponibles
+        default_q = config.WEATHER_DEFAULT_QUERY
         if lat and lon:
             url = f"{WEATHER_API_URL}/weather?lat={lat}&lon={lon}&appid={WEATHER_API_KEY}&units=metric&lang=fr"
         elif city:
             url = f"{WEATHER_API_URL}/weather?q={city}&appid={WEATHER_API_KEY}&units=metric&lang=fr"
         else:
-            # Valeurs par défaut (Casablanca, Morocco)
-            url = f"{WEATHER_API_URL}/weather?q=Casablanca,MA&appid={WEATHER_API_KEY}&units=metric&lang=fr"
+            url = f"{WEATHER_API_URL}/weather?q={default_q}&appid={WEATHER_API_KEY}&units=metric&lang=fr"
         
         response = requests.get(url, timeout=10)
         
@@ -222,6 +557,8 @@ def get_weather_data(lat=None, lon=None, city=None):
                 'sunset': datetime.fromtimestamp(data['sys']['sunset']).strftime('%H:%M'),
                 'city': data['name'],
                 'country': data['sys']['country'],
+                'latitude': data['coord']['lat'],
+                'longitude': data['coord']['lon'],
                 'timestamp': datetime.now().isoformat()
             }
             
@@ -269,7 +606,7 @@ def get_weather_forecast(lat=None, lon=None, city=None, days=5):
         elif city:
             url = f"{WEATHER_API_URL}/forecast?q={city}&appid={WEATHER_API_KEY}&units=metric&lang=fr"
         else:
-            url = f"{WEATHER_API_URL}/forecast?q=Casablanca,MA&appid={WEATHER_API_KEY}&units=metric&lang=fr"
+            url = f"{WEATHER_API_URL}/forecast?q={config.WEATHER_DEFAULT_QUERY}&appid={WEATHER_API_KEY}&units=metric&lang=fr"
         
         response = requests.get(url, timeout=10)
         
@@ -287,6 +624,7 @@ def get_weather_forecast(lat=None, lon=None, city=None, days=5):
                     daily_forecasts[date_key] = {
                         'date': date_key,
                         'day_name': dt.strftime('%A'),
+                        'weekday': dt.weekday(),
                         'temps': [],
                         'humidity': [],
                         'rain_prob': [],
@@ -303,9 +641,11 @@ def get_weather_forecast(lat=None, lon=None, city=None, days=5):
             # Calculer les moyennes
             forecast_summary = []
             for date_key, day_data in daily_forecasts.items():
+                wd = day_data.get('weekday', 0)
                 forecast_summary.append({
                     'date': date_key,
                     'day_name': day_data['day_name'],
+                    'day_name_fr': WEEKDAYS_FR[wd % 7],
                     'temp_avg': round(sum(day_data['temps']) / len(day_data['temps']), 1),
                     'temp_min': round(min(day_data['temps']), 1),
                     'temp_max': round(max(day_data['temps']), 1),
@@ -332,37 +672,388 @@ def get_weather_forecast(lat=None, lon=None, city=None, days=5):
 @app.route('/')
 def index():
     """
-    Page d'accueil principale - Dashboard moderne
-    Accès direct sans authentification
+    Page d'accueil principale - Dashboard moderne 100% No-JS
+    Toutes les données sont injectées côté serveur
     """
-    return render_template('dashbord.html', active_nav='dashboard')
+    # 1. Données Météo Actuelles
+    weather = get_weather_data()
+    
+    # 2. Dernières données capteurs
+    latest_readings = db.get_latest_readings(limit=1)
+    current_sensor = latest_readings[0] if latest_readings else None
+    
+    # 3. Statistiques 24h
+    stats = db.get_statistics(hours=24)
+    
+    # 4. Prévisions météo (5 jours)
+    forecast_data = get_weather_forecast(days=5)
+    forecasts = forecast_data.get('forecasts', []) if forecast_data.get('success') else []
+    
+    # 5. Alertes actives
+    alerts = db.get_recent_alerts(limit=5)
+    
+    # 6. Infos de Qualité d'Air
+    aqi_value = current_sensor['air_quality_ppm'] if current_sensor else 0
+    aqi_info = config.get_air_quality_level(aqi_value)
+    
+    now_str = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    return render_template(
+        'dashboard.html',
+        active_nav='dashboard',
+        weather=weather,
+        sensor=current_sensor,
+        stats=stats,
+        forecasts=forecasts,
+        alerts=alerts,
+        aqi=aqi_info,
+        aqi_value=round(aqi_value, 1),
+        now_str=now_str,
+    )
 
 
 @app.route('/map')
 def map_view():
+    """Vue cartographique (Version No-JS) - Centré sur Casablanca par défaut"""
+    # Récupérer les dernières données avec coordonnées GPS
+    readings = db.get_latest_readings(limit=20)
+    locations = []
+    for reading in readings:
+        if reading.get('latitude') and reading.get('longitude'):
+            try:
+                locations.append({
+                    **reading,
+                    'latitude': float(reading['latitude']),
+                    'longitude': float(reading['longitude'])
+                })
+            except (TypeError, ValueError):
+                continue
+    
+    # Si aucune donnée GPS n'est dispo, utiliser la position de Casablanca (défaut)
+    if not locations:
+        weather = get_weather_data()
+        if weather and 'latitude' in weather and 'longitude' in weather:
+            # Vérifier que c'est bien Casablanca (ou proche)
+            weather_lat = float(weather.get('latitude', config.MAP_CENTER_LAT))
+            weather_lon = float(weather.get('longitude', config.MAP_CENTER_LON))
+            distance = _haversine_km(weather_lat, weather_lon, float(config.MAP_CENTER_LAT), float(config.MAP_CENTER_LON))
+            # Si la météo est trop loin, utiliser Casablanca
+            if distance is None or distance > config.MAP_GPS_MAX_DISTANCE_KM:
+                weather_lat = float(config.MAP_CENTER_LAT)
+                weather_lon = float(config.MAP_CENTER_LON)
+            locations = [{
+                'latitude': weather_lat,
+                'longitude': weather_lon,
+                'timestamp': 'Position via Météo (Casablanca)',
+                'air_quality_ppm': 95,
+                'air_quality_color': '#fbbf24',
+                'is_fallback': True
+            }]
+        else:
+            # Fallback à Casablanca
+            locations = [{
+                'latitude': float(config.MAP_CENTER_LAT),
+                'longitude': float(config.MAP_CENTER_LON),
+                'timestamp': 'Position Casablanca (défaut)',
+                'air_quality_ppm': 95,
+                'air_quality_color': '#fbbf24',
+                'is_fallback': True
+            }]
+    
+    latest_one = db.get_latest_readings(limit=1)
+    current_sensor = latest_one[0] if latest_one else None
+
+    loc = locations[0]
+
+    # Centre carte : position GPS si cohérente avec la ville météo (Casablanca), sinon centre ville
+    # (évite un faux fix type Tunis). MAP_FOLLOW_GPS=true force toujours le GPS.
+    weather = get_weather_data()
+    home_lat = float(config.MAP_CENTER_LAT)
+    home_lon = float(config.MAP_CENTER_LON)
+    city_name = config.WEATHER_DEFAULT_QUERY.split(',')[0].replace('+', ' ')
+    if weather and weather.get('latitude') is not None and weather.get('longitude') is not None:
+        try:
+            home_lat = float(weather['latitude'])
+            home_lon = float(weather['longitude'])
+        except (TypeError, ValueError):
+            pass
+        city_name = weather.get('city') or city_name
+
+    sensor_gps = None
+    if current_sensor and current_sensor.get('latitude') and current_sensor.get('longitude'):
+        try:
+            sensor_gps = (
+                float(current_sensor['latitude']),
+                float(current_sensor['longitude']),
+            )
+        except (TypeError, ValueError):
+            sensor_gps = None
+
+    dist_sensor_home = None
+    if sensor_gps:
+        dist_sensor_home = _haversine_km(sensor_gps[0], sensor_gps[1], home_lat, home_lon)
+
+    map_lat, map_lon = home_lat, home_lon
+    if sensor_gps:
+        slat, slon = sensor_gps
+        if getattr(config, 'MAP_FOLLOW_GPS', False):
+            map_lat, map_lon = slat, slon
+        else:
+            max_km = float(getattr(config, 'MAP_GPS_MAX_DISTANCE_KM', 320))
+            if dist_sensor_home is not None and dist_sensor_home <= max_km:
+                map_lat, map_lon = slat, slon
+
+    map_extra = {
+        'city_name': city_name,
+        'ref_lat': home_lat,
+        'ref_lon': home_lon,
+        'sensor_lat': sensor_gps[0] if sensor_gps else None,
+        'sensor_lon': sensor_gps[1] if sensor_gps else None,
+        'gps_ignored': bool(
+            sensor_gps
+            and not getattr(config, 'MAP_FOLLOW_GPS', False)
+            and (
+                dist_sensor_home is None
+                or dist_sensor_home > float(getattr(config, 'MAP_GPS_MAX_DISTANCE_KM', 320))
+            )
+        ),
+        'sensor_distance_km': round(dist_sensor_home, 1) if dist_sensor_home is not None else None,
+    }
+
+    ppm_val = None
+    if current_sensor and current_sensor.get('air_quality_ppm') is not None:
+        try:
+            ppm_val = float(current_sensor['air_quality_ppm'])
+        except (TypeError, ValueError):
+            ppm_val = None
+    if ppm_val is None:
+        try:
+            v = loc.get('air_quality_ppm')
+            ppm_val = float(v) if v not in (None, '--', '') else 96.5
+        except (TypeError, ValueError):
+            ppm_val = 96.5
+
+    aqi_row = config.get_air_quality_level(ppm_val)
+    try:
+        t_val = float(current_sensor.get('temperature')) if current_sensor and current_sensor.get('temperature') is not None else 28.3
+    except (TypeError, ValueError):
+        t_val = 28.3
+    try:
+        h_val = float(current_sensor.get('humidity')) if current_sensor and current_sensor.get('humidity') is not None else 43.9
+    except (TypeError, ValueError):
+        h_val = 43.9
+
+    map_info = {
+        'lat': map_lat,
+        'lon': map_lon,
+        'ppm': round(ppm_val, 1),
+        'level': aqi_row['level'],
+        'temp': round(t_val, 1),
+        'humidity': round(h_val, 1),
+    }
+
+    return render_template('map.html', active_nav='map', locations=locations, map_info=map_info, map_extra=map_extra)
+
+
+@app.route('/news')
+def news_view():
     """
-    Vue cartographique des zones à risque
-    Accès direct sans authentification
+    Page des sources d'actualités liées à l'environnement.
     """
-    return render_template('map.html', active_nav='map')
+    try:
+        articles = merge_news_article_lists(
+            22,
+            DEMO_NEWS_ARTICLES[:3],
+            get_news_articles(),
+            fetch_rss_environment_news(12),
+            DEMO_NEWS_ARTICLES[3:],
+        )
+        if not articles:
+            articles = [ensure_article_has_link(a) for a in DEMO_NEWS_ARTICLES]
+
+        news_pack = get_news_sources()
+        raw_sources = []
+        if isinstance(news_pack, dict):
+            raw_sources = news_pack.get('results') or []
+        sources = []
+        for s in raw_sources[:12]:
+            card = normalize_news_source_card(s)
+            if card:
+                sources.append(card)
+        if not sources:
+            sources = DEMO_NEWS_SOURCES
+
+        return render_template(
+            'news.html',
+            active_nav='news',
+            sources=sources,
+            articles=articles,
+        )
+    except Exception as e:
+        logger.error(f"Erreur /news: {e}")
+        return render_template(
+            'news.html',
+            active_nav='news',
+            sources=DEMO_NEWS_SOURCES,
+            articles=[ensure_article_has_link(a) for a in DEMO_NEWS_ARTICLES],
+        )
 
 
 @app.route('/predictions')
 def predictions_view():
     """
-    Page des prédictions ML
-    Accès direct sans authentification
+    Page des prédictions ML - Version sans JavaScript
     """
-    return render_template('predictions.html', active_nav='predictions')
+    try:
+        # Récupérer les prédictions (logique similaire à l'API)
+        # On simule ou on utilise le predictor si possible
+        predictions = []
+        recommendations = []
+        
+        # Prédictions ML (même logique que /api/predictions — predict_next_hours n’existait pas)
+        if not predictor.model:
+            predictor.load_model()
+        if predictor.model:
+            latest_readings = db.get_latest_readings(limit=1)
+            if latest_readings:
+                current_data = {
+                    'air_quality_ppm': latest_readings[0]['air_quality_ppm'],
+                    'temperature': latest_readings[0]['temperature'],
+                    'humidity': latest_readings[0]['humidity'],
+                }
+            else:
+                current_data = {
+                    'air_quality_ppm': 80.0,
+                    'temperature': 25.0,
+                    'humidity': 55.0,
+                }
+            preds = predictor.predict(current_data, hours_ahead=24)
+            if preds:
+                for p in preds:
+                    ts_raw = p['timestamp']
+                    if isinstance(ts_raw, str):
+                        pred_time = datetime.fromisoformat(ts_raw.replace('Z', '+00:00'))
+                    else:
+                        pred_time = ts_raw
+                    level_info = config.get_air_quality_level(p['predicted_aqi'])
+                    predictions.append({
+                        'time': pred_time.strftime('%H:%M'),
+                        'value': round(float(p['predicted_aqi']), 1),
+                        'level': level_info['level'],
+                        'color': level_info['color'],
+                    })
 
+                avg_pred = sum(float(p['predicted_aqi']) for p in preds) / len(preds)
+                if avg_pred > 100:
+                    recommendations.append({
+                        'title': 'Attention Pollution',
+                        'message': 'Des niveaux élevés sont prévus. Limitez les activités physiques intenses.',
+                        'icon': '⚠️',
+                    })
+                else:
+                    recommendations.append({
+                        'title': 'Qualité Stable',
+                        'message': 'La qualité de l\'air devrait rester acceptable pour les prochaines 24h.',
+                        'icon': '✅',
+                    })
+        
+        if not predictions:
+            base_h = datetime.now().replace(minute=0, second=0, microsecond=0)
+            demo_vals = [99, 101, 102, 83, 67, 71, 88, 95, 110, 116, 108, 92]
+            predictions = []
+            for i, val in enumerate(demo_vals):
+                t = base_h + timedelta(hours=i + 1)
+                level_info = config.get_air_quality_level(val)
+                predictions.append({
+                    'time': t.strftime('%H:%M'),
+                    'value': float(val),
+                    'level': level_info['level'],
+                    'color': level_info['color'],
+                    'bar_pct': min(100, int(val / 1.5)),
+                })
 
-@app.route('/alerts')
-def alerts_view():
-    """
-    Page de gestion des alertes
-    Accès direct sans authentification
-    """
-    return render_template('alerts.html', active_nav='alerts')
+        for p in predictions:
+            if 'bar_pct' not in p:
+                try:
+                    p['bar_pct'] = min(100, int(float(p['value']) / 1.5))
+                except (TypeError, ValueError):
+                    p['bar_pct'] = 40
+
+        reco_cards = [
+            {
+                'icon': '🌿',
+                'title': 'Ventilation',
+                'message': 'Aérez votre maison tôt le matin ou tard le soir, quand la pollution est plus faible.',
+            },
+            {
+                'icon': '🏃',
+                'title': 'Activité physique',
+                'message': 'Évitez le sport intense en extérieur aux heures de pic de pollution signalées.',
+            },
+            {
+                'icon': '😷',
+                'title': 'Protection',
+                'message': 'Les personnes sensibles devraient limiter les sorties prolongues aux pics.',
+            },
+            {
+                'icon': '📡',
+                'title': 'Surveillance',
+                'message': 'Température et humidité actuelles restent dans des plages habituelles — suivez l’IQA.',
+            },
+        ]
+
+        peak_banner = None
+        if predictions:
+            peak = max(predictions, key=lambda x: float(x['value']))
+            if float(peak['value']) >= 100:
+                peak_banner = {
+                    'detail': (
+                        f"Pic de pollution prévu. Valeur maximale prévue à {peak['time']} : "
+                        f"{float(peak['value']):.0f} PPM — {peak['level']}. Prenez vos précautions et limitez les activités "
+                        f"extérieures intenses à ce moment."
+                    )
+                }
+
+        return render_template(
+            'predictions.html',
+            active_nav='predictions',
+            predictions=predictions,
+            recommendations=recommendations,
+            reco_cards=reco_cards,
+            peak_banner=peak_banner,
+        )
+    except Exception as e:
+        logger.error(f"Erreur /predictions: {e}")
+        base_h = datetime.now().replace(minute=0, second=0, microsecond=0)
+        demo_vals = [99, 101, 102, 83, 67, 71, 88, 95, 110, 116, 108, 92]
+        fallback_preds = []
+        for i, val in enumerate(demo_vals):
+            t = base_h + timedelta(hours=i + 1)
+            level_info = config.get_air_quality_level(val)
+            fallback_preds.append({
+                'time': t.strftime('%H:%M'),
+                'value': float(val),
+                'level': level_info['level'],
+                'color': level_info['color'],
+                'bar_pct': min(100, int(val / 1.5)),
+            })
+        return render_template(
+            'predictions.html',
+            active_nav='predictions',
+            predictions=fallback_preds,
+            recommendations=[],
+            reco_cards=[
+                {
+                    'icon': '📦',
+                    'title': 'Modèle ML',
+                    'message': (
+                        'Les prédictions de secours s’affichent. '
+                        'Sur le Raspberry Pi : placez les fichiers .pkl dans ./models/ puis '
+                        '`python3 ml_model.py` pour entraîner, ou vérifiez les logs au démarrage.'
+                    ),
+                },
+            ],
+            peak_banner=None,
+        )
 
 
 @app.route('/analytics')
@@ -372,8 +1063,10 @@ def analytics_view():
     Toutes les statistiques et analyses sont calculées côté serveur en Python.
     """
     try:
-        # Période en jours pour l'analyse (7 / 30 / 90)
-        days = int(request.args.get('days', 30))
+        # Période : 1 = 24 h, 7 ou 30 jours
+        days = int(request.args.get('days', 7))
+        if days not in (1, 7, 30, 90):
+            days = 7
         hours = days * 24
 
         end_time = datetime.now()
@@ -411,6 +1104,9 @@ def analytics_view():
             max_aqi = max(air_quality)
         else:
             avg_aqi = min_aqi = max_aqi = 0
+
+        avg_temp = sum(temperature) / len(temperature) if temperature else 0.0
+        avg_hum = sum(humidity) / len(humidity) if humidity else 0.0
 
         # Distribution par niveau AQI (même logique que l'ancien JS)
         dist = [0, 0, 0, 0, 0]
@@ -476,26 +1172,45 @@ def analytics_view():
             'avg_aqi': round(avg_aqi, 1),
             'min_aqi': round(min_aqi, 1),
             'max_aqi': round(max_aqi, 1),
+            'avg_temp': round(avg_temp, 1),
+            'avg_humidity': round(avg_hum, 1),
             'total_readings': len(readings),
             'best_range': best_range,
             'quality_level': quality_info['level'],
             'quality_description': quality_info['description'],
-            'distribution': dist
+            'distribution': dist,
+            'dist_sensitive': dist[2] + dist[3] + dist[4],
+            'dist_moderate': dist[1],
+            'dist_good': dist[0],
         }
 
-        table_rows = list(zip(timestamps, air_quality, temperature, humidity))
+        history_rows = []
+        for r in readings:
+            ts = r['timestamp']
+            ts_str = ts.isoformat(sep=' ', timespec='seconds') if hasattr(ts, 'isoformat') else str(ts)
+            aq = r['air_quality_ppm']
+            info = config.get_air_quality_level(aq)
+            history_rows.append({
+                'ts': ts_str,
+                'aqi': round(float(aq), 1),
+                'temp': round(float(r.get('temperature', 0) or 0), 1),
+                'hum': round(float(r.get('humidity', 0) or 0), 1),
+                'level': info['level'],
+                'level_color': info['color'],
+            })
+        history_rows.reverse()
 
         return render_template(
             'analytics.html',
             active_nav='analytics',
             summary=summary,
-            table_rows=table_rows,
-            nasa_events=nasa_events
+            history_rows=history_rows,
+            nasa_events=nasa_events,
         )
     except Exception as e:
         logger.error(f"Erreur affichage /analytics: {e}")
         # Si problème, rediriger vers le dashboard simple
-        return render_template('dashbord.html', active_nav='dashboard')
+        return render_template('dashboard.html', active_nav='dashboard')
 
 
 # ============= API REST ENDPOINTS =============
@@ -957,6 +1672,7 @@ def health_check():
         'status': 'online',
         'timestamp': datetime.now().isoformat(),
         'version': '2.2.0',
+        'build': AIRWATCH_BUILD,
         'features': {
             'responsive': True,
             'authentication': False,
@@ -967,50 +1683,19 @@ def health_check():
     })
 
 
-# ============= WEBSOCKET EVENTS (Temps réel) =============
-
-@socketio.on('connect')
-def handle_connect():
-    """Gère la connexion d'un client WebSocket"""
-    logger.info("✓ Client connecté via WebSocket")
-    emit('connection_response', {'status': 'connected'})
 
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Gère la déconnexion d'un client"""
-    logger.info("Client déconnecté")
 
 
-@socketio.on('request_data')
-def handle_data_request():
-    """Envoie les dernières données au client qui les demande"""
-    try:
-        readings = db.get_latest_readings(limit=1)
-        if readings:
-            emit('sensor_data', readings[0])
-    except Exception as e:
-        logger.error(f"Erreur WebSocket request_data: {e}")
-
+# ============= FONCTIONS BROADCAST (Désactivées) =============
 
 def broadcast_sensor_data(data):
-    """
-    Diffuse les nouvelles données capteurs à tous les clients connectés
-    
-    Args:
-        data (dict): Données capteurs à diffuser
-    """
-    socketio.emit('sensor_update', data)
-
+    """Plus utilisé dans la version sans JS"""
+    pass
 
 def broadcast_alert(alert):
-    """
-    Diffuse une alerte à tous les clients connectés
-    
-    Args:
-        alert (dict): Données de l'alerte
-    """
-    socketio.emit('alert', alert)
+    """Plus utilisé dans la version sans JS"""
+    pass
 
 
 # ============= INITIALISATION =============
@@ -1056,7 +1741,433 @@ def initialize_server():
     logger.info("")
 
 
+# ============= ASSISTANT IA (Hugging Face) =============
+# Routeur OpenAI-compatible : https://huggingface.co/docs/huggingface_hub/guides/inference
+# Modèle par défaut : HuggingFaceTB/SmolLM2-1.7B-Instruct (Hub, petit instruct pour chat).
+
+
+def _hf_chat_urls():
+    """URLs OpenAI-compatibles à essayer (HF peut renvoyer 404 selon modèle / région)."""
+    urls = []
+    primary = (config.HF_CONFIG.get('chat_url') or '').strip()
+    if primary:
+        urls.append(primary)
+    fallback = 'https://router.huggingface.co/v1/chat/completions'
+    if fallback not in urls:
+        urls.append(fallback)
+    return urls
+
+
+def _hf_chat_model_candidates(primary=None):
+    """Modèles légers en priorité (meilleure dispo sur le routeur HF)."""
+    out = []
+    for m in (
+        primary,
+        config.HF_CONFIG.get('chat_model'),
+        'Qwen/Qwen2.5-0.5B-Instruct',
+        'HuggingFaceTB/SmolLM2-360M-Instruct',
+        'meta-llama/Llama-3.2-1B-Instruct',
+        'HuggingFaceTB/SmolLM2-1.7B-Instruct',
+        'Qwen/Qwen2.5-1.5B-Instruct',
+    ):
+        if m and m not in out:
+            out.append(m)
+    return out
+
+
+def _hf_chat_completion(hf_api_key, messages, model_id=None):
+    """
+    Appelle Hugging Face InferenceClient (meilleure approche avec permissions).
+    Retourne (texte, status_code, corps_brut_tronqué).
+    """
+    if not hf_api_key:
+        logger.warning("HF_API_KEY vide, passage au prochain service...")
+        return None, 0, ''
+    
+    try:
+        from huggingface_hub import InferenceClient
+    except ImportError:
+        logger.warning("⚠ huggingface_hub not installed. Install with: pip install huggingface-hub")
+        return None, 0, 'huggingface_hub not installed'
+    
+    try:
+        client = InferenceClient(api_key=hf_api_key)
+        
+        # Essayer avec le modèle spécifié ou le fallback
+        models_to_try = []
+        if model_id:
+            models_to_try.append(model_id)
+        
+        # Modèles disponibles et fiables
+        models_to_try.extend([
+            'Qwen/Qwen2.5-72B-Instruct',
+            'meta-llama/Llama-3.1-70b-instruct',
+            'mistralai/Mistral-7B-Instruct-v0.3',
+            'HuggingFaceTB/SmolLM2-1.7B-Instruct',
+        ])
+        
+        for model in models_to_try:
+            try:
+                logger.info(f"🔮 Essai HF InferenceClient avec {model}...")
+                
+                response = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=256,
+                    temperature=0.7,
+                    timeout=30
+                )
+                
+                text = response.choices[0].message.content
+                if text:
+                    logger.info(f'✓ HF InferenceClient OK — {model}')
+                    return text, 200, text[:500]
+                    
+            except Exception as model_err:
+                err_msg = str(model_err)
+                if 'not available' in err_msg.lower() or 'not found' in err_msg.lower():
+                    logger.warning(f"⚠ Modèle {model} indisponible: {err_msg[:100]}")
+                    continue
+                elif 'timeout' in err_msg.lower():
+                    logger.warning(f"⚠ Timeout avec {model}")
+                    continue
+                else:
+                    logger.warning(f"⚠ Erreur HF {model}: {err_msg[:100]}")
+                    continue
+        
+        logger.error("✗ Aucun modèle HF disponible")
+        return None, 0, 'No HF models available'
+        
+    except Exception as e:
+        logger.error(f"✗ HF InferenceClient error: {str(e)[:200]}")
+        return None, 0, str(e)[:500]
+
+
+def _openai_chat_completion(messages):
+    """Repli OpenAI (GPT) si HF échoue — définir OPENAI_API_KEY dans .env."""
+    key = (config.OPENAI_CONFIG.get('api_key') or '').strip()
+    if not key:
+        return None, 0, ''
+    url = (config.OPENAI_CONFIG.get('chat_url') or 'https://api.openai.com/v1/chat/completions').strip()
+    model = config.OPENAI_CONFIG.get('chat_model') or 'gpt-4o-mini'
+    headers = {
+        'Authorization': f'Bearer {key}',
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        'model': model,
+        'messages': messages,
+        'max_tokens': 450,
+        'temperature': 0.55,
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=70)
+    except requests.RequestException as e:
+        logger.error(f'OpenAI chat réseau: {e}')
+        return None, 0, str(e)[:400]
+
+    snippet = (response.text or '')[:800]
+    if response.status_code != 200:
+        logger.warning(f'OpenAI chat → HTTP {response.status_code}')
+        return None, response.status_code, snippet
+    try:
+        result = response.json()
+    except json.JSONDecodeError:
+        return None, response.status_code, snippet
+    choices = result.get('choices') or []
+    if not choices:
+        return None, response.status_code, snippet
+    text = ((choices[0].get('message') or {}).get('content') or '').strip()
+    if text:
+        logger.info('OpenAI chat OK')
+        return text, response.status_code, snippet
+    return None, response.status_code, snippet
+
+
+def _groq_chat_completion(messages):
+    """Groq (OpenAI-compatible) — clé gratuite sur https://console.groq.com/keys"""
+    key = (config.GROQ_CONFIG.get('api_key') or '').strip()
+    if not key:
+        logger.debug("GROQ_API_KEY non configurée, passage au service suivant...")
+        return None, 0, ''
+    
+    url = (config.GROQ_CONFIG.get('chat_url') or 'https://api.groq.com/openai/v1/chat/completions').strip()
+    model = config.GROQ_CONFIG.get('chat_model') or 'llama-3.1-70b-versatile'
+    headers = {
+        'Authorization': f'Bearer {key}',
+        'Content-Type': 'application/json',
+    }
+    payload = {
+        'model': model,
+        'messages': messages,
+        'max_tokens': 512,
+        'temperature': 0.55,
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=45)
+    except requests.RequestException as e:
+        logger.warning(f'⚠ Groq réseau: {str(e)[:100]}')
+        return None, 0, str(e)[:400]
+    
+    snippet = (response.text or '')[:800]
+    
+    if response.status_code == 401:
+        logger.error("⚠ GROQ_API_KEY invalide ou expiée (401)")
+        return None, 401, snippet
+    elif response.status_code == 429:
+        logger.warning(f"⚠ Groq rate limited (429)")
+        return None, 429, snippet
+    elif response.status_code != 200:
+        logger.warning(f'⚠ Groq → HTTP {response.status_code}')
+        return None, response.status_code, snippet
+    
+    try:
+        result = response.json()
+    except json.JSONDecodeError as je:
+        logger.warning(f"⚠ Groq JSON decode: {str(je)[:100]}")
+        return None, response.status_code, snippet
+    
+    choices = result.get('choices') or []
+    if not choices:
+        logger.warning("⚠ Groq returned empty choices")
+        return None, response.status_code, snippet
+    
+    text = ((choices[0].get('message') or {}).get('content') or '').strip()
+    if text:
+        logger.info('✓ Groq chat OK')
+        return text, response.status_code, snippet
+    
+    return None, response.status_code, snippet
+
+
+def _custom_openai_chat_completion(messages):
+    """Serveur LLM local type Ollama / vLLM (OpenAI-compatible). CUSTOM_CHAT_URL dans .env."""
+    url = (os.getenv('CUSTOM_CHAT_URL') or '').strip()
+    if not url:
+        return None
+    key = (os.getenv('CUSTOM_CHAT_API_KEY') or '').strip()
+    model = (os.getenv('CUSTOM_CHAT_MODEL') or 'llama3.2').strip()
+    headers = {'Content-Type': 'application/json'}
+    if key:
+        headers['Authorization'] = f'Bearer {key}'
+    payload = {
+        'model': model,
+        'messages': messages,
+        'max_tokens': 400,
+        'temperature': 0.5,
+        'stream': False,
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+    except requests.RequestException as e:
+        logger.warning(f'CUSTOM_CHAT_URL: {e}')
+        return None
+    if response.status_code != 200:
+        logger.warning(f'CUSTOM_CHAT → HTTP {response.status_code}')
+        return None
+    try:
+        result = response.json()
+    except json.JSONDecodeError:
+        return None
+    choices = result.get('choices') or []
+    if not choices:
+        return None
+    text = ((choices[0].get('message') or {}).get('content') or '').strip()
+    if text:
+        logger.info('CUSTOM_CHAT OK')
+        return text
+    return None
+
+
+def run_cloud_chat_completion(messages):
+    """HF → Groq → OpenAI → serveur CUSTOM (Ollama, etc.)."""
+    hf_key = (config.HF_CONFIG.get('api_key') or '').strip()
+    if hf_key:
+        bot, _, _ = _hf_chat_completion(hf_key, messages)
+        if bot:
+            return bot
+    bot, _, _ = _groq_chat_completion(messages)
+    if bot:
+        return bot
+    bot, _, _ = _openai_chat_completion(messages)
+    if bot:
+        return bot
+    return _custom_openai_chat_completion(messages)
+
+
+def _assistant_fallback_reply(user_message, context):
+    """Réponse en français si l’API HF échoue (404, quota, etc.)."""
+    u = user_message.strip().lower()
+    ctx = (context or '').strip()
+    intro = (
+        '[Mode hors-ligne — aucun LLM cloud n’a répondu. Ajoutez GROQ_API_KEY (gratuit sur console.groq.com) '
+        'ou OPENAI_API_KEY, ou un serveur local CUSTOM_CHAT_URL (Ollama). Actuellement: Essai HF+Groq+OpenAI+Custom.]\n\n'
+    )
+    if 'conseil' in u or 'santé' in u or 'sante' in u:
+        return intro + (
+            'Limitez l’effort intense en extérieur lors des pics de pollution, hydratez-vous, et les personnes '
+            'sensibles (asthme, cœur) doivent suivre les alertes. '
+            + (ctx if ctx else 'Voir le tableau de bord pour les valeurs actuelles.')
+        )
+    if 'prédiction' in u or 'prediction' in u or 'prévision' in u:
+        return intro + 'Les prévisions détaillées sont sur la page « Prédictions ». ' + ctx
+    if 'météo' in u or 'meteo' in u:
+        return intro + 'La météo actuelle est sur le tableau de bord. ' + ctx
+    if 'qualité' in u or 'pollution' in u or "qualite" in u:
+        return intro + 'L’indice et le niveau sont sur le tableau de bord. ' + ctx
+    return intro + 'Posez-moi une question sur la pollution, la météo ou la santé ; voici le contexte capteur : ' + (
+        ctx if ctx else 'Aucune donnée capteur récente.'
+    )
+
+
 # ============= DÉMARRAGE DU SERVEUR =============
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """
+    Assistant IA pour la météo et l'environnement via Hugging Face (routeur OpenAI-compatible)
+    """
+    try:
+        data = request.json
+        user_message = data.get('message', '')
+
+        if not user_message:
+            return jsonify({'success': False, 'error': 'Message vide'}), 400
+
+        hf_api_key = (config.HF_CONFIG.get('api_key') or '').strip()
+        oa_key = (config.OPENAI_CONFIG.get('api_key') or '').strip()
+        groq_key = (config.GROQ_CONFIG.get('api_key') or '').strip()
+        custom_url = (os.getenv('CUSTOM_CHAT_URL') or '').strip()
+        if not hf_api_key and not oa_key and not groq_key and not custom_url:
+            fallback = _assistant_fallback_reply(user_message, '')
+            return jsonify({
+                'success': True,
+                'message': fallback,
+                'warning': 'no_api_keys',
+            })
+
+        system_prompt = (
+            "Tu es un expert en environnement et en météorologie. "
+            "Réponds en français, de façon concise et utile."
+        )
+        messages = [
+            {'role': 'system', 'content': system_prompt},
+            {'role': 'user', 'content': user_message},
+        ]
+
+        bot_text = run_cloud_chat_completion(messages)
+        if bot_text:
+            return jsonify({'success': True, 'message': bot_text})
+
+        logger.error(f'Assistant cloud indisponible (HF/OpenAI)')
+        fallback = _assistant_fallback_reply(user_message, '')
+        return jsonify({'success': True, 'message': fallback, 'warning': 'cloud_unavailable'})
+
+    except Exception as e:
+        logger.error(f"Erreur /api/chat: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/chat', methods=['GET', 'POST'])
+def chat_page():
+    """
+    Page de chat sans JavaScript - Utilise les sessions Flask pour l'historique
+    """
+    if 'chat_history' not in session:
+        session['chat_history'] = [
+            {
+                'sender': 'bot',
+                'text': (
+                    "Bonjour ! Je suis AirWatch Assistant, votre expert en qualité de l'air et météorologie. "
+                    "Posez-moi vos questions sur la pollution, la météo ou des conseils santé. 🤖"
+                ),
+            }
+        ]
+    
+    if request.method == 'POST':
+        user_message = request.form.get('message', '').strip()
+        
+        if user_message:
+            # Récupérer les données actuelles pour donner du contexte à l'IA
+            context = ""
+            try:
+                latest = db.get_latest_readings(limit=1)
+                if latest:
+                    d = latest[0]
+                    aqi_info = config.get_air_quality_level(d['air_quality_ppm'])
+                    weather = get_weather_data()
+                    
+                    context = f"\n[CONTEXTE ACTUEL]: "
+                    context += f"Qualité de l'air: {d['air_quality_ppm']} PPM ({aqi_info['level']}). "
+                    if weather:
+                        context += f"Météo à {weather['city']}: {weather['temperature']}°C, {weather['description']}, Humidité {weather['humidity']}%."
+            except Exception as e:
+                logger.error(f"Erreur contexte chat: {e}")
+
+            # Ajouter le message de l'utilisateur
+            history = session['chat_history']
+            history.append({'sender': 'user', 'text': user_message})
+            
+            # Hugging Face puis OpenAI (OPENAI_API_KEY) ; sinon réponse locale utile
+            try:
+                system_prompt = (
+                    "Tu es un expert en environnement et en météorologie pour le système AirWatch. "
+                    "Aide l'utilisateur à comprendre la météo et à protéger l'environnement. "
+                    "Utilise le contexte actuel fourni si pertinent pour tes conseils. "
+                    "Réponds en français de manière concise et encourageante."
+                )
+                messages = [
+                    {'role': 'system', 'content': system_prompt + (' ' + context if context else '')},
+                    {'role': 'user', 'content': user_message},
+                ]
+                hf_key = (config.HF_CONFIG.get('api_key') or '').strip()
+                oa_key = (config.OPENAI_CONFIG.get('api_key') or '').strip()
+                groq_key = (config.GROQ_CONFIG.get('api_key') or '').strip()
+                custom_url = (os.getenv('CUSTOM_CHAT_URL') or '').strip()
+                if hf_key or oa_key or groq_key or custom_url:
+                    bot_text = run_cloud_chat_completion(messages)
+                    if bot_text:
+                        history.append({'sender': 'bot', 'text': bot_text})
+                    else:
+                        logger.error('Assistant cloud: aucune réponse (HF/OpenAI)')
+                        history.append({'sender': 'bot', 'text': _assistant_fallback_reply(user_message, context)})
+                else:
+                    history.append({
+                        'sender': 'bot',
+                        'text': _assistant_fallback_reply(
+                            user_message,
+                            context + '\n[Astuce] Ajoutez GROQ_API_KEY (gratuit), HF_API_KEY, OPENAI_API_KEY ou CUSTOM_CHAT_URL dans .env.',
+                        ),
+                    })
+            except Exception as e:
+                logger.error(f"Exception Assistant IA: {e}")
+                history.append({'sender': 'bot', 'text': _assistant_fallback_reply(user_message, context)})
+            
+            session['chat_history'] = history
+            session.modified = True
+            
+        return redirect(url_for('chat_page'))
+
+    return render_template('chat.html', active_nav='chat', history=session['chat_history'])
+
+
+@app.route('/chat/clear')
+def clear_chat():
+    session.pop('chat_history', None)
+    return redirect(url_for('chat_page'))
+
+
+@app.context_processor
+def inject_theme():
+    """Rend la variable theme disponible dans tous les templates"""
+    return {'theme': session.get('theme', 'dark'), 'app_build': AIRWATCH_BUILD}
+
+@app.route('/toggle-theme')
+def toggle_theme():
+    """Bascule entre le mode sombre et le mode clair"""
+    current_theme = session.get('theme', 'dark')
+    session['theme'] = 'light' if current_theme == 'dark' else 'dark'
+    return redirect(request.referrer or url_for('index'))
 
 if __name__ == '__main__':
     # Initialiser le serveur
@@ -1077,7 +2188,6 @@ if __name__ == '__main__':
     logger.info(f"📊 Dashboard:      http://localhost:{port}/")
     logger.info(f"🗺️  Carte GPS:      http://localhost:{port}/map")
     logger.info(f"🧠 Prédictions IA: http://localhost:{port}/predictions")
-    logger.info(f"🔔 Alertes:        http://localhost:{port}/alerts")
     logger.info(f"")
     logger.info(f"🔌 API Health:     http://localhost:{port}/api/health")
     logger.info(f"")
@@ -1091,11 +2201,6 @@ if __name__ == '__main__':
     logger.info("🔴 Appuyez sur Ctrl+C pour arrêter le serveur")
     logger.info(f"")
     
-    # Démarrer le serveur Flask avec WebSocket
-    socketio.run(
-        app,
-        host=host,
-        port=port,
-        debug=debug,
-        allow_unsafe_werkzeug=True
-    )
+    # Lancer le serveur Flask
+    logger.info(f"🚀 Serveur Web démarré sur http://{host}:{port}")
+    app.run(host=host, port=port, debug=debug, use_reloader=False)

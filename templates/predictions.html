@@ -1,475 +1,113 @@
 {% extends "base.html" %}
-{% block title %}Prédictions IA - Surveillance Qualité de l'Air{% endblock %}
+{% block title %}Prédictions — AirWatch{% endblock %}
 
-<!-- ========== SCRIPTS NÉCESSAIRES ========== -->
-{% block extra_head_scripts %}
-    <!-- Chart.js pour les graphiques de prédictions -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <!-- Socket.IO pour les mises à jour en temps réel -->
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-{% endblock %}
-
-<!-- ========== STYLES CSS SPÉCIFIQUES ========== -->
 {% block extra_css %}
 <style>
-/* Carte de prédiction principale */
-.prediction-card { 
-    background: var(--bg-secondary); 
-    border-radius: var(--radius-xl); 
-    padding: var(--spacing-xl); 
-    border: 1px solid var(--bg-tertiary); 
-    margin-bottom: var(--spacing-lg); 
-}
-
-/* En-tête de la carte avec titre et boutons */
-.prediction-header { 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
-    margin-bottom: var(--spacing-lg);
-    flex-wrap: wrap;
-    gap: var(--spacing-md);
-}
-
-/* Zone du graphique de prédictions */
-.prediction-chart { 
-    height: 400px; 
-    margin-bottom: var(--spacing-xl); 
-}
-
-/* Grille de recommandations */
-.recommendations { 
-    display: grid; 
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
-    gap: var(--spacing-lg); 
-}
-
-/* Élément de recommandation individuel */
-.recommendation-item { 
-    background: var(--bg-tertiary); 
-    padding: var(--spacing-lg); 
-    border-radius: var(--radius-md); 
-    border-left: 4px solid var(--accent-primary); 
-    transition: all 0.3s ease;
-}
-
-.recommendation-item:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-
-/* Icône de recommandation */
-.recommendation-icon { 
-    font-size: 2rem; 
-    margin-bottom: var(--spacing-md); 
-}
-
-/* Titre de recommandation */
-.recommendation-title { 
-    font-weight: 600; 
-    margin-bottom: var(--spacing-sm);
-    color: var(--text-primary);
-}
-
-/* Texte de recommandation */
-.recommendation-text { 
-    color: var(--text-secondary); 
-    font-size: 0.875rem;
-    line-height: 1.5;
-}
-
-/* Alerte de pic de pollution */
-.peak-alert { 
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
-    color: white; 
-    padding: var(--spacing-lg); 
-    border-radius: var(--radius-md); 
-    margin-bottom: var(--spacing-lg);
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-lg);
-}
-
-/* Heure du pic */
-.peak-time { 
-    font-size: 1.5rem; 
-    font-weight: 700; 
-}
-
-/* État vide (quand aucune prédiction) */
-.empty-prediction-state {
-    text-align: center;
-    padding: var(--spacing-xl) * 2;
-    color: var(--text-muted);
-}
-
-.empty-prediction-state i {
-    font-size: 4rem;
-    margin-bottom: var(--spacing-lg);
-    opacity: 0.5;
-}
-
-/* Animation de chargement */
-.loading-spinner {
-    display: inline-block;
-    width: 20px;
-    height: 20px;
-    border: 3px solid var(--bg-tertiary);
-    border-radius: 50%;
-    border-top-color: var(--accent-primary);
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    to { transform: rotate(360deg); }
-}
+    .page-wrap { padding: var(--spacing-xl); max-width: 1200px; margin: 0 auto; }
+    .banner-alert {
+        background: linear-gradient(90deg, #ec4899 0%, #f97316 100%);
+        color: #fff;
+        padding: var(--spacing-lg);
+        border-radius: var(--radius-lg);
+        margin-bottom: var(--spacing-xl);
+        display: flex;
+        gap: var(--spacing-md);
+        align-items: flex-start;
+        font-size: 0.95rem;
+        line-height: 1.55;
+    }
+    .pred-table-wrap {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-xl);
+        border: 1px solid var(--bg-tertiary);
+        overflow: hidden;
+        margin-bottom: var(--spacing-xl);
+    }
+    .pred-table-wrap h3 { padding: var(--spacing-lg); margin: 0; border-bottom: 1px solid var(--bg-tertiary); font-size: 1.1rem; }
+    table.pred-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    table.pred-table th, table.pred-table td { padding: 0.85rem 1rem; text-align: left; border-bottom: 1px solid var(--bg-tertiary); }
+    table.pred-table th { color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+    .ppm-cell { font-weight: 700; }
+    .bar-cell { width: 120px; }
+    .bar-track { height: 8px; border-radius: 999px; background: var(--bg-tertiary); overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; }
+    .reco-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: var(--spacing-lg);
+    }
+    .reco-card {
+        background: var(--bg-secondary);
+        border: 1px solid var(--bg-tertiary);
+        border-radius: var(--radius-lg);
+        padding: var(--spacing-lg);
+    }
+    .reco-card .ico { font-size: 1.75rem; margin-bottom: var(--spacing-sm); }
+    .reco-card h4 { font-size: 1rem; margin-bottom: 0.35rem; }
+    .reco-card p { color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; margin: 0; }
 </style>
 {% endblock %}
 
-<!-- ========== CONTENU PRINCIPAL ========== -->
 {% block content %}
-        <!-- En-tête de la page -->
-        <header class="header">
-            <div class="header-left">
-                <h2 class="page-title">Prédictions par Intelligence Artificielle</h2>
-                <p class="page-subtitle">Prévisions de qualité de l'air utilisant le Machine Learning</p>
-            </div>
-            <div class="header-right">
-                <div class="header-actions">
-                    <button class="icon-button" title="Notifications">
-                        <span class="notification-badge">3</span>
-                        <i class="fas fa-bell"></i>
-                    </button>
-                    <button class="icon-button" title="Paramètres">
-                        <i class="fas fa-cog"></i>
-                    </button>
-                    <div class="user-profile">
-                        <img src="https://ui-avatars.com/api/?name=Utilisateur&background=7C3AED&color=fff" alt="Utilisateur">
-                    </div>
-                </div>
-            </div>
-        </header>
+<header class="header">
+    <div class="header-left">
+        <h2 class="page-title">📈 Prédictions IA</h2>
+        <p class="page-subtitle">Prévisions de qualité de l'air pour les 24 prochaines heures</p>
+    </div>
+    <div class="header-right">
+        <span class="status-pill online-muted"><span class="dot" aria-hidden="true"></span> Modèle</span>
+    </div>
+</header>
 
-        <!-- Conteneur principal des prédictions -->
-        <div style="padding: var(--spacing-xl);">
-            
-            <!-- ========== ALERTE DE PIC DE POLLUTION (masquée par défaut) ========== -->
-            <div id="peakAlert" style="display: none;" class="peak-alert">
-                <span style="font-size: 3rem;"><i class="fas fa-exclamation-triangle"></i></span>
-                <div>
-                    <h3>Pic de Pollution Détecté</h3>
-                    <p>Prévu à <span class="peak-time" id="peakTime">--</span></p>
-                    <p style="opacity: 0.9; margin-top: var(--spacing-sm);">
-                        La qualité de l'air pourrait atteindre des niveaux dangereux. 
-                        Limitez les activités extérieures si possible.
-                    </p>
-                </div>
-            </div>
-            
-            <!-- ========== GRAPHIQUE DES PRÉDICTIONS ========== -->
-            <div class="prediction-card">
-                <div class="prediction-header">
-                    <h3>Prévisions de Qualité de l'Air sur 24 Heures</h3>
-                    <!-- Boutons pour changer la période de prédiction -->
-                    <div style="display: flex; gap: var(--spacing-md);">
-                        <button class="time-btn active" onclick="updatePredictions(24)">24H</button>
-                        <button class="time-btn" onclick="updatePredictions(48)">48H</button>
-                        <button class="time-btn" onclick="updatePredictions(72)">72H</button>
-                    </div>
-                </div>
-                
-                <!-- Zone du graphique -->
-                <div class="prediction-chart">
-                    <canvas id="predictionChart"></canvas>
-                </div>
-            </div>
-            
-            <!-- ========== RÉSUMÉ DES PRÉDICTIONS ========== -->
-            <div class="prediction-card">
-                <h3 style="margin-bottom: var(--spacing-lg);">Résumé des Prédictions</h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-lg);">
-                    <!-- Prédiction : Prochaine Heure -->
-                    <div style="text-align: center; padding: var(--spacing-lg); background: var(--bg-tertiary); border-radius: var(--radius-md);">
-                        <p style="color: var(--text-muted); margin-bottom: var(--spacing-sm);">
-                            <i class="far fa-clock"></i> Prochaine Heure
-                        </p>
-                        <p style="font-size: 2rem; font-weight: 700;" id="next1h">--</p>
-                        <p style="color: var(--text-secondary); font-size: 0.875rem;" id="next1hLevel">--</p>
-                    </div>
-                    
-                    <!-- Prédiction : 6 Heures -->
-                    <div style="text-align: center; padding: var(--spacing-lg); background: var(--bg-tertiary); border-radius: var(--radius-md);">
-                        <p style="color: var(--text-muted); margin-bottom: var(--spacing-sm);">
-                            <i class="far fa-clock"></i> Dans 6 Heures
-                        </p>
-                        <p style="font-size: 2rem; font-weight: 700;" id="next6h">--</p>
-                        <p style="color: var(--text-secondary); font-size: 0.875rem;" id="next6hLevel">--</p>
-                    </div>
-                    
-                    <!-- Prédiction : 12 Heures -->
-                    <div style="text-align: center; padding: var(--spacing-lg); background: var(--bg-tertiary); border-radius: var(--radius-md);">
-                        <p style="color: var(--text-muted); margin-bottom: var(--spacing-sm);">
-                            <i class="far fa-clock"></i> Dans 12 Heures
-                        </p>
-                        <p style="font-size: 2rem; font-weight: 700;" id="next12h">--</p>
-                        <p style="color: var(--text-secondary); font-size: 0.875rem;" id="next12hLevel">--</p>
-                    </div>
-                    
-                    <!-- Prédiction : 24 Heures -->
-                    <div style="text-align: center; padding: var(--spacing-lg); background: var(--bg-tertiary); border-radius: var(--radius-md);">
-                        <p style="color: var(--text-muted); margin-bottom: var(--spacing-sm);">
-                            <i class="far fa-clock"></i> Dans 24 Heures
-                        </p>
-                        <p style="font-size: 2rem; font-weight: 700;" id="next24h">--</p>
-                        <p style="color: var(--text-secondary); font-size: 0.875rem;" id="next24hLevel">--</p>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- ========== RECOMMANDATIONS IA ========== -->
-            <div class="prediction-card">
-                <h3 style="margin-bottom: var(--spacing-lg);">
-                    <i class="fas fa-lightbulb"></i> Recommandations de l'IA
-                </h3>
-                <div class="recommendations" id="recommendations">
-                    <!-- État par défaut pendant le chargement -->
-                    <div class="recommendation-item">
-                        <div class="recommendation-icon"><span class="loading-spinner"></span></div>
-                        <div class="recommendation-title">Chargement des recommandations...</div>
-                        <div class="recommendation-text">Veuillez patienter pendant que nous analysons les données</div>
-                    </div>
-                </div>
-            </div>
+<div class="page-wrap">
+    {% if peak_banner %}
+    <div class="banner-alert">
+        <span style="font-size:1.5rem;">⚠️</span>
+        <div>{{ peak_banner.detail }}</div>
+    </div>
+    {% endif %}
+
+    <div class="pred-table-wrap">
+        <h3>🕐 Prévisions heure par heure</h3>
+        <div style="overflow-x:auto;">
+            <table class="pred-table">
+                <thead>
+                    <tr>
+                        <th>Heure</th>
+                        <th>Qualité (PPM)</th>
+                        <th>Niveau</th>
+                        <th class="bar-cell">Indicateur</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pred in predictions[:24] %}
+                    <tr>
+                        <td>{{ pred.time }}</td>
+                        <td class="ppm-cell" style="color:{{ pred.color }};">{{ pred.value }}</td>
+                        <td><span style="color:{{ pred.color }};font-weight:600;">{{ pred.level }}</span></td>
+                        <td class="bar-cell">
+                            <div class="bar-track">
+                                <div class="bar-fill" style="width:{{ pred.bar_pct }}%;background:{{ pred.color }};"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:2rem;">Aucune prédiction pour le moment.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-{% endblock %}
+    </div>
 
-<!-- ========== SCRIPTS JAVASCRIPT ========== -->
-{% block extra_scripts %}
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
-    <script>
-        // ========== VARIABLES GLOBALES ==========
-        let predictionChart;  // Objet graphique Chart.js
-        let currentHours = 24;  // Période de prédiction actuelle
-        
-        // ========== FONCTION : INITIALISER LE GRAPHIQUE DE PRÉDICTIONS ==========
-        function initPredictionChart() {
-            const ctx = document.getElementById('predictionChart').getContext('2d');
-            
-            predictionChart = new Chart(ctx, {
-                type: 'line',  // Graphique en courbe
-                data: {
-                    labels: [],  // Heures (axe X)
-                    datasets: [{
-                        label: 'Qualité de l\'Air Prédite (PPM)',
-                        data: [],  // Valeurs prédites (axe Y)
-                        borderColor: '#8B5CF6',  // Couleur violet
-                        backgroundColor: 'rgba(139, 92, 246, 0.1)',  // Remplissage transparent
-                        tension: 0.4,  // Courbe lisse
-                        fill: true,  // Remplir sous la courbe
-                        pointRadius: 4,  // Taille des points
-                        pointHoverRadius: 8  // Taille au survol
-                    }]
-                },
-                options: {
-                    responsive: true,  // S'adapte à la taille du conteneur
-                    maintainAspectRatio: false,  // Ne pas garder le ratio
-                    plugins: {
-                        legend: {
-                            labels: { color: '#F1F5F9' }  // Couleur du texte
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                            padding: 12,
-                            cornerRadius: 8
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: { color: '#334155' },
-                            ticks: { color: '#94A3B8' },
-                            title: {
-                                display: true,
-                                text: 'Qualité de l\'Air (PPM)',
-                                color: '#94A3B8'
-                            }
-                        },
-                        x: {
-                            grid: { color: '#334155' },
-                            ticks: { 
-                                color: '#94A3B8',
-                                maxRotation: 45,
-                                minRotation: 45
-                            },
-                            title: {
-                                display: true,
-                                text: 'Heure',
-                                color: '#94A3B8'
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        
-        // ========== FONCTION : CHARGER LES PRÉDICTIONS DEPUIS L'API ==========
-        async function loadPredictions(hours) {
-            try {
-                console.log(`📊 Chargement des prédictions pour ${hours}h...`);
-                
-                // Appeler l'API de prédictions
-                const response = await fetch(`/api/predictions?hours=${hours}`);
-                const result = await response.json();
-                
-                if (!result.success) {
-                    console.error('❌ Erreur API:', result.error);
-                    showErrorState();
-                    return;
-                }
-                
-                const predictions = result.predictions || [];
-                
-                if (predictions.length === 0) {
-                    console.warn('⚠️ Aucune prédiction disponible');
-                    showEmptyState();
-                    return;
-                }
-                
-                console.log(`✓ ${predictions.length} prédictions chargées`);
-                
-                // ========== METTRE À JOUR LE GRAPHIQUE ==========
-                predictionChart.data.labels = predictions.map(p => 
-                    new Date(p.timestamp).toLocaleTimeString('fr-FR', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                    })
-                );
-                predictionChart.data.datasets[0].data = predictions.map(p => p.predicted_aqi);
-                predictionChart.update();
-                
-                // ========== METTRE À JOUR LES RÉSUMÉS ==========
-                if (predictions.length > 0) {
-                    document.getElementById('next1h').textContent = predictions[0].predicted_aqi.toFixed(1);
-                    document.getElementById('next1hLevel').textContent = predictions[0].level || '--';
-                }
-                if (predictions.length >= 6) {
-                    document.getElementById('next6h').textContent = predictions[5].predicted_aqi.toFixed(1);
-                    document.getElementById('next6hLevel').textContent = predictions[5].level || '--';
-                }
-                if (predictions.length >= 12) {
-                    document.getElementById('next12h').textContent = predictions[11].predicted_aqi.toFixed(1);
-                    document.getElementById('next12hLevel').textContent = predictions[11].level || '--';
-                }
-                if (predictions.length >= 24) {
-                    document.getElementById('next24h').textContent = predictions[23].predicted_aqi.toFixed(1);
-                    document.getElementById('next24hLevel').textContent = predictions[23].level || '--';
-                }
-                
-                // ========== AFFICHER LES RECOMMANDATIONS ==========
-                const recommendations = result.recommendations || [];
-                displayRecommendations(recommendations);
-                
-                // ========== AFFICHER L'ALERTE DE PIC SI NÉCESSAIRE ==========
-                const peaks = result.peaks || [];
-                if (peaks.length > 0) {
-                    document.getElementById('peakAlert').style.display = 'flex';
-                    document.getElementById('peakTime').textContent = 
-                        new Date(peaks[0].timestamp).toLocaleString('fr-FR', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                        });
-                } else {
-                    document.getElementById('peakAlert').style.display = 'none';
-                }
-                
-            } catch (error) {
-                console.error('❌ Erreur lors du chargement des prédictions:', error);
-                showErrorState();
-            }
-        }
-        
-        // ========== FONCTION : AFFICHER LES RECOMMANDATIONS ==========
-        function displayRecommendations(recommendations) {
-            const container = document.getElementById('recommendations');
-            
-            if (recommendations.length === 0) {
-                // Aucune recommandation : afficher un message positif
-                container.innerHTML = `
-                    <div class="recommendation-item" style="border-left-color: var(--success);">
-                        <div class="recommendation-icon"><i class="fas fa-check-circle" style="color: var(--success);"></i></div>
-                        <div class="recommendation-title">Qualité de l'Air Bonne</div>
-                        <div class="recommendation-text">Aucune précaution particulière nécessaire. Profitez des activités en plein air !</div>
-                    </div>
-                `;
-                return;
-            }
-            
-            // Afficher chaque recommandation
-            container.innerHTML = recommendations.map(rec => `
-                <div class="recommendation-item">
-                    <div class="recommendation-icon">${rec.icon || '💡'}</div>
-                    <div class="recommendation-title">${rec.title || 'Recommandation'}</div>
-                    <div class="recommendation-text">${rec.message || ''}</div>
-                </div>
-            `).join('');
-        }
-        
-        // ========== FONCTION : AFFICHER UN ÉTAT VIDE ==========
-        function showEmptyState() {
-            document.getElementById('recommendations').innerHTML = `
-                <div class="empty-prediction-state">
-                    <i class="fas fa-brain"></i>
-                    <p>Aucune prédiction disponible pour le moment</p>
-                    <p style="font-size: 0.875rem; margin-top: var(--spacing-sm);">
-                        Le modèle ML a besoin de plus de données historiques pour générer des prédictions fiables.
-                    </p>
-                </div>
-            `;
-        }
-        
-        // ========== FONCTION : AFFICHER UN ÉTAT D'ERREUR ==========
-        function showErrorState() {
-            document.getElementById('recommendations').innerHTML = `
-                <div class="empty-prediction-state">
-                    <i class="fas fa-exclamation-circle" style="color: var(--danger);"></i>
-                    <p>Erreur lors du chargement des prédictions</p>
-                    <p style="font-size: 0.875rem; margin-top: var(--spacing-sm);">
-                        Le modèle ML pourrait ne pas être chargé. Vérifiez les logs du serveur.
-                    </p>
-                    <button class="time-btn" onclick="loadPredictions(currentHours)" style="margin-top: var(--spacing-lg);">
-                        <i class="fas fa-sync-alt"></i> Réessayer
-                    </button>
-                </div>
-            `;
-        }
-        
-        // ========== FONCTION : CHANGER LA PÉRIODE DE PRÉDICTION ==========
-        function updatePredictions(hours) {
-            currentHours = hours;
-            
-            // Mettre à jour les boutons (retirer 'active' de tous, l'ajouter au cliqué)
-            document.querySelectorAll('.time-btn').forEach(btn => btn.classList.remove('active'));
-            event.target.classList.add('active');
-            
-            // Charger les nouvelles prédictions
-            loadPredictions(hours);
-        }
-        
-        // ========== INITIALISATION AU CHARGEMENT DE LA PAGE ==========
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('🚀 Initialisation de la page Prédictions IA');
-            
-            // Initialiser le graphique
-            initPredictionChart();
-            
-            // Charger les prédictions pour 24h
-            loadPredictions(24);
-            
-            // Rafraîchir toutes les 5 minutes
-            setInterval(() => {
-                console.log('🔄 Rafraîchissement automatique des prédictions');
-                loadPredictions(currentHours);
-            }, 300000);  // 300000ms = 5 minutes
-        });
-    </script>
+    <h3 style="margin-bottom:var(--spacing-lg);font-size:1.1rem;">💡 Recommandations IA</h3>
+    <div class="reco-grid">
+        {% for c in reco_cards %}
+        <div class="reco-card">
+            <div class="ico">{{ c.icon }}</div>
+            <h4>{{ c.title }}</h4>
+            <p>{{ c.message }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 {% endblock %}

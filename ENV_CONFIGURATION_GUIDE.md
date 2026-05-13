@@ -93,16 +93,22 @@ MQTT_PASSWORD=
 
 ---
 
-## 🚫 What You DON'T Need to Configure
+---
 
-### AWS IoT (Leave empty unless you specifically use AWS IoT Core)
+## 🤖 Assistant IA (Hugging Face)
+
+**Requis pour faire fonctionner le chat intelligent :**
+
 ```env
-AWS_IOT_ENDPOINT=
-AWS_IOT_CLIENT_ID=raspberry_pi_sensor
-AWS_IOT_CERT_PATH=
-AWS_IOT_KEY_PATH=
-AWS_IOT_ROOT_CA_PATH=
+HF_API_KEY=votre_clé_hugging_face
 ```
+
+### Comment obtenir une clé API :
+1. Créez un compte gratuit sur [huggingface.co](https://huggingface.co/).
+2. Allez dans **Settings** → **Access Tokens**.
+3. Créez un nouveau token de type "Read" et copiez-le dans le fichier `.env`.
+
+---
 
 ---
 

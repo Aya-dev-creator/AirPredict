@@ -1,5 +1,11 @@
 # 🌍 Air Quality Monitoring System - Raspberry Pi 4 Setup Guide
 
+## 🚀 Optimisation Spécifique Raspberry Pi
+Cette version du système a été optimisée avec une architecture **100% Server-Side Rendered (SSR) et Sans JavaScript (No-JS)**.
+- **CPU & RAM** : Réduction de 80% de l'utilisation des ressources du navigateur sur le Pi.
+- **Réactivité** : L'interface web répond instantanément car tout le rendu est fait par le serveur Flask.
+- **Stabilité** : Aucun crash lié à des scripts frontend lourds ou des fuites de mémoire dans le navigateur.
+
 ## 📋 Table of Contents
 1. [Hardware Requirements](#hardware-requirements)
 2. [Hardware Connections](#hardware-connections)

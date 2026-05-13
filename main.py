@@ -8,7 +8,7 @@ Ce script orchestre tous les composants du système:
 - Stockage en base de données SQLite3
 - Prédictions ML
 - Alertes en temps réel
-- Publication cloud (IoT)
+- Alertes en temps réel
 - Serveur web pour visualisation
 
 Auteur: Projet PFE 2024
@@ -24,14 +24,14 @@ from datetime import datetime
 # Imports des modules du projet
 from config import config
 from database import AirQualityDatabase
-from sensors import SensorManager
+from sensors2 import SensorManager
 from ml_model import AirQualityPredictor, generate_synthetic_training_data
-from iot_cloud import IoTCloudManager
+# from iot_cloud import IoTCloudManager
 from alert_system import AlertSystem
 
 # Import du serveur web (optionnel)
 try:
-    from web_server import app, socketio, broadcast_sensor_data, broadcast_alert, initialize_server
+    from web_server import app, initialize_server
     WEB_SERVER_AVAILABLE = True
 except ImportError:
     WEB_SERVER_AVAILABLE = False
@@ -98,13 +98,8 @@ class AirQualitySystem:
             
             logger.info("✓ Modèle ML prêt")
             
-            # Cloud IoT
-            logger.info("☁️ Initialisation connexion Cloud IoT...")
-            self.iot = IoTCloudManager()
-            if self.iot.connect():
-                logger.info("✓ Connexion Cloud établie")
-            else:
-                logger.warning("⚠ Connexion Cloud échouée - Continuera sans IoT")
+            # Cloud IoT désactivé (Hébergement Cloudflare)
+            self.iot = None
             
             # Système d'alertes
             logger.info("⚠️ Initialisation système d'alertes...")
@@ -163,32 +158,11 @@ class AirQualitySystem:
             if record_id:
                 logger.info(f"✓ Données enregistrées (ID: {record_id})")
             
-            # Publier sur le cloud IoT
-            if self.iot.is_connected():
-                self.iot.publish_sensor_data(sensor_data)
-                logger.info("✓ Données publiées sur le cloud")
+            # Publication cloud désactivée
             
-            # Diffuser aux clients web via WebSocket (si disponible)
+            # Diffuser aux clients web désactivé (No-JS)
             if WEB_SERVER_AVAILABLE:
-                try:
-                    broadcast_sensor_data({
-                        'timestamp': sensor_data['timestamp'],
-                        'air_quality': {
-                            'value': air_quality,
-                            'level': config.get_air_quality_level(air_quality)['level'],
-                            'color': config.get_air_quality_level(air_quality)['color'],
-                            'description': config.get_air_quality_level(air_quality)['description']
-                        },
-                        'temperature': temperature,
-                        'humidity': humidity,
-                        'location': {
-                            'latitude': latitude,
-                            'longitude': longitude
-                        }
-                    })
-                    logger.debug("✓ Données diffusées vers interface web")
-                except Exception as e:
-                    logger.debug(f"Note: Erreur diffusion web: {e}")
+                logger.debug("✓ Données prêtes pour interface web (SSR)")
             
             # Vérifier les seuils et déclencher des alertes
             alerts = self.alert_system.check_air_quality(
@@ -199,11 +173,7 @@ class AirQualitySystem:
             if alerts:
                 logger.warning(f"⚠️ {len(alerts)} alerte(s) déclenchée(s)")
                 if WEB_SERVER_AVAILABLE:
-                    try:
-                        for alert in alerts:
-                            broadcast_alert(alert)
-                    except Exception as e:
-                        logger.debug(f"Note: Erreur diffusion alerte: {e}")
+                    logger.warning("⚠️ Alerte générée (SSR)")
             
             logger.info("="*60)
             logger.info("✓ CYCLE TERMINÉ\n")
@@ -244,12 +214,7 @@ class AirQualitySystem:
                 logger.warning(f"⚠️ {len(peaks)} pic(s) de pollution prévu(s)")
                 # Créer des alertes pour les pics prévus
                 alerts = self.alert_system.check_predictions(predictions)
-                try:
-                    from web_server import broadcast_alert
-                    for alert in alerts:
-                        broadcast_alert(alert)
-                except ImportError:
-                    pass
+                pass
             else:
                 logger.info("✓ Aucun pic de pollution prévu")
             
@@ -264,9 +229,7 @@ class AirQualitySystem:
                         model_version='RF_v1.0'
                     )
             
-            # Publier les prédictions sur le cloud
-            if self.iot.is_connected():
-                self.iot.publish_prediction(predictions[:12])  # 12 prochaines heures
+            # Publication cloud désactivée
             
             logger.info("="*60)
             logger.info("✓ PRÉDICTIONS TERMINÉES\n")
@@ -328,12 +291,10 @@ class AirQualitySystem:
                 logger.info(f"✓ Serveur web démarré sur http://{host}:{port}")
                 logger.info(f"📱 Accessible depuis n'importe quel appareil sur le réseau")
                 logger.info(f"🌍 Interface web: http://{host}:{port}/")
-                socketio.run(
-                    app,
+                app.run(
                     host=host,
                     port=port,
-                    debug=False,
-                    allow_unsafe_werkzeug=True
+                    debug=False
                 )
             
             self.web_server_thread = threading.Thread(target=run_server, daemon=True)
@@ -397,9 +358,9 @@ class AirQualitySystem:
             self.sensors.cleanup()
             logger.info("✓ Capteurs nettoyés")
         
-        if self.iot:
-            self.iot.disconnect()
-            logger.info("✓ Cloud déconnecté")
+        # if self.iot:
+        #     self.iot.disconnect()
+        #     logger.info("✓ Cloud déconnecté")
         
         if self.db:
             self.db.close()

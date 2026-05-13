@@ -15,15 +15,8 @@ gpsd-py3==0.3.0
 # I2C for BMP180
 smbus2==0.4.3
 
-# MQTT/IoT
-paho-mqtt==1.6.1
-
 # Web Server
 Flask==3.0.0
-Flask-SocketIO==5.3.5
-Flask-CORS==4.0.0
-python-socketio==5.10.0
-python-engineio==4.8.0
 Werkzeug==3.0.1
 
 # Machine Learning
@@ -35,9 +28,8 @@ joblib==1.3.2
 # Scheduling
 schedule==1.2.0
 
-# Email Alerts
-secure-smtplib==0.1.1
-
 # Utilities
 requests==2.31.0
 pytz==2023.3
+
+dotenv

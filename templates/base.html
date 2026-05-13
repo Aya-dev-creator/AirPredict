@@ -2,161 +2,117 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}AirWatch - Surveillance Qualité de l'Air{% endblock %}</title>
-    
-    <!-- CSS principal de l'application - toujours chargé sur toutes les pages -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashbord.css') }}">
-    
-    <!-- CSS RESPONSIVE pour adapter aux téléphones, tablettes et ordinateurs -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>{% block title %}AirWatch — Qualité de l'air{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}">
-    
-    <!-- Font Awesome pour les icônes modernes (remplace les emojis) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- Police Google Inter pour un design moderne -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- Meta viewport pour le responsive (IMPORTANT pour mobile) -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    
-    <!-- CSS supplémentaire spécifique à chaque page -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     {% block extra_css %}{% endblock %}
-    
-    <!-- Scripts supplémentaires dans le head (ex: Chart.js, Socket.IO) -->
     {% block extra_head_scripts %}{% endblock %}
+    <style>
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+                z-index: 1001;
+            }
+            #menu-toggle:checked ~ .sidebar { transform: translateX(0); }
+            #menu-toggle:checked ~ .main-content::after {
+                content: '';
+                position: fixed;
+                inset: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 999;
+            }
+            #menu-toggle:checked ~ .mobile-header .menu-toggle-btn span:nth-child(1) {
+                transform: rotate(45deg) translate(5px, 5px);
+            }
+            #menu-toggle:checked ~ .mobile-header .menu-toggle-btn span:nth-child(2) { opacity: 0; }
+            #menu-toggle:checked ~ .mobile-header .menu-toggle-btn span:nth-child(3) {
+                transform: rotate(-45deg) translate(7px, -7px);
+            }
+        }
+        .menu-toggle-btn {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            cursor: pointer;
+            padding: 10px;
+        }
+        .menu-toggle-btn span {
+            display: block;
+            width: 25px;
+            height: 3px;
+            background: var(--text-primary);
+            border-radius: 3px;
+            transition: all 0.3s ease;
+        }
+    </style>
 </head>
-<body data-theme="">
-    <!-- Script pour charger le thème sauvegardé (sombre/clair) AVANT l'affichage -->
-    <script>
-        // Charge le thème depuis le localStorage (mémoire du navigateur)
-        document.body.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
-    </script>
-    
-    <!-- ========== MENU LATÉRAL (SIDEBAR) ========== -->
-    <!-- Affiché sur toutes les pages, permet la navigation -->
+<body data-theme="dark">
+    <input type="checkbox" id="menu-toggle" style="display: none;">
+
+    <div class="mobile-header">
+        <label for="menu-toggle" class="menu-toggle-btn">
+            <span></span><span></span><span></span>
+        </label>
+        <div class="mobile-header-title">AirWatch</div>
+    </div>
+
     <div class="sidebar">
-        <!-- Logo et nom de l'application -->
         <div class="logo">
-            <!-- Icône globe avec dégradé violet -->
-            <div class="logo-icon">
-                <i class="fas fa-globe-americas"></i>
-            </div>
-            <h1>AirWatch</h1>
+            <div class="logo-icon" aria-hidden="true"><i class="fas fa-leaf"></i></div>
+            <h1 class="logo-title">AirWatch</h1>
         </div>
-        
-        <!-- Menu de navigation principal -->
-        <nav class="nav-menu">
-            <!-- Lien vers le Dashboard (page d'accueil) -->
-            <!-- La classe 'active' est ajoutée si on est sur cette page -->
+
+        <nav class="nav-menu" aria-label="Navigation principale">
             <a href="/" class="nav-item {{ 'active' if (active_nav|default('')) == 'dashboard' else '' }}">
-                <span class="nav-icon"><i class="fas fa-chart-line"></i></span>
-                <span class="nav-text">Tableau de Bord</span>
+                <span class="nav-icon"><i class="fas fa-house"></i></span>
+                <span class="nav-text">Tableau de bord</span>
             </a>
-            
-            <!-- Lien vers la Carte GPS -->
-            <a href="/map" class="nav-item {{ 'active' if (active_nav|default('')) == 'map' else '' }}">
-                <span class="nav-icon"><i class="fas fa-map-marked-alt"></i></span>
-                <span class="nav-text">Carte GPS</span>
-            </a>
-            
-            <!-- Lien vers les Prédictions IA -->
             <a href="/predictions" class="nav-item {{ 'active' if (active_nav|default('')) == 'predictions' else '' }}">
-                <span class="nav-icon"><i class="fas fa-brain"></i></span>
-                <span class="nav-text">Prédictions IA</span>
+                <span class="nav-icon"><i class="fas fa-chart-line"></i></span>
+                <span class="nav-text">Prédictions</span>
             </a>
-            
-            <!-- Lien vers les Alertes -->
-            <a href="/alerts" class="nav-item {{ 'active' if (active_nav|default('')) == 'alerts' else '' }}">
-                <span class="nav-icon"><i class="fas fa-bell"></i></span>
-                <span class="nav-text">Alertes</span>
+            <a href="/chat" class="nav-item {{ 'active' if (active_nav|default('')) == 'chat' else '' }}">
+                <span class="nav-icon"><i class="fas fa-robot"></i></span>
+                <span class="nav-text">Assistant IA</span>
             </a>
-            
-            <!-- Lien vers les Analyses (nouveau) -->
+            <a href="/map" class="nav-item {{ 'active' if (active_nav|default('')) == 'map' else '' }}">
+                <span class="nav-icon"><i class="fas fa-map-location-dot"></i></span>
+                <span class="nav-text">Carte</span>
+            </a>
             <a href="/analytics" class="nav-item {{ 'active' if (active_nav|default('')) == 'analytics' else '' }}">
                 <span class="nav-icon"><i class="fas fa-chart-pie"></i></span>
-                <span class="nav-text">Analyses</span>
+                <span class="nav-text">Analytiques</span>
+            </a>
+            <a href="/news" class="nav-item {{ 'active' if (active_nav|default('')) == 'news' else '' }}">
+                <span class="nav-icon"><i class="fas fa-newspaper"></i></span>
+                <span class="nav-text">Actualités</span>
             </a>
         </nav>
-        
-        <!-- Pied de page du menu latéral -->
+
         <div class="sidebar-footer">
-            <!-- Bouton pour changer de thème (clair/sombre) -->
-            <div class="theme-toggle">
-                <span class="toggle-icon" id="themeIcon"><i class="fas fa-moon"></i></span>
-                <span class="toggle-text" id="themeLabel">Mode Clair</span>
-                <!-- Switch toggle personnalisé -->
-                <label class="switch">
-                    <input type="checkbox" id="themeToggle">
-                    <span class="slider"></span>
-                </label>
-            </div>
-            
-            <!-- Indicateur de statut du système -->
+            <div class="sidebar-footer-divider" aria-hidden="true"></div>
             <div class="system-info">
-                <!-- Point vert clignotant pour montrer que le système fonctionne -->
-                <div class="status-indicator online"></div>
-                <span>Système En Ligne</span>
+                <div class="status-indicator online" aria-hidden="true"></div>
+                <span>Système actif — Casablanca</span>
             </div>
+            {% if app_build|default('') %}
+            <div class="system-info" style="margin-top:0.35rem;font-size:0.7rem;opacity:0.75;">
+                <span>Build {{ app_build }}</span>
+            </div>
+            {% endif %}
         </div>
     </div>
 
-    <!-- ========== CONTENU PRINCIPAL ========== -->
-    <!-- Cette zone change selon la page (dashboard, map, predictions, etc.) -->
     <div class="main-content">
-        <!-- Le contenu spécifique de chaque page est inséré ici -->
         {% block content %}{% endblock %}
     </div>
 
-    <!-- ========== SCRIPTS JAVASCRIPT ========== -->
-    <!-- Scripts supplémentaires spécifiques à chaque page -->
     {% block extra_scripts %}{% endblock %}
-    
-    <!-- Script global pour le menu mobile (responsive) -->
-    <script src="{{ url_for('static', filename='js/mobile-menu.js') }}"></script>
-    
-    <!-- Script global pour le changement de thème (disponible sur toutes les pages) -->
-    <script>
-        // Fonction pour initialiser le changement de thème
-        function initThemeToggle() {
-            const themeToggle = document.getElementById('themeToggle');
-            const themeIcon = document.getElementById('themeIcon');
-            const themeLabel = document.getElementById('themeLabel');
-            
-            if (themeToggle) {
-                // Charger le thème sauvegardé (par défaut : sombre)
-                const savedTheme = localStorage.getItem('theme') || 'dark';
-                document.body.setAttribute('data-theme', savedTheme);
-                themeToggle.checked = savedTheme === 'dark';
-                
-                // Mettre à jour l'icône et le label selon le thème
-                updateThemeUI(savedTheme, themeIcon, themeLabel);
-                
-                // Écouter les changements de thème
-                themeToggle.addEventListener('change', () => {
-                    const theme = themeToggle.checked ? 'dark' : 'light';
-                    document.body.setAttribute('data-theme', theme);
-                    localStorage.setItem('theme', theme);
-                    updateThemeUI(theme, themeIcon, themeLabel);
-                });
-            }
-        }
-        
-        // Fonction pour mettre à jour l'interface du sélecteur de thème
-        function updateThemeUI(theme, iconElement, labelElement) {
-            if (theme === 'dark') {
-                iconElement.innerHTML = '<i class="fas fa-moon"></i>';
-                labelElement.textContent = 'Mode Clair';
-            } else {
-                iconElement.innerHTML = '<i class="fas fa-sun"></i>';
-                labelElement.textContent = 'Mode Sombre';
-            }
-        }
-        
-        // Initialiser quand la page est chargée
-        document.addEventListener('DOMContentLoaded', initThemeToggle);
-    </script>
 </body>
 </html>
