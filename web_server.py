@@ -197,7 +197,7 @@ def get_nasa_environment_events(lat=None, lon=None, max_distance_km=1000):
         resp = requests.get(NASA_EONET_URL, params=params, timeout=15)
         # Si la réponse n'est pas un succès (code HTTP 200), on logge un warning et on s'arrête
         if resp.status_code != 200:
-            logger.warning(f"⚠️ Erreur API NASA EONET: {resp.status_code}")
+            logger.warning(f"Erreur API NASA EONET: {resp.status_code}")
             return []
 
         # Extraction des données JSON de la réponse
@@ -287,16 +287,16 @@ def get_news_sources(country='ma', language='fr', category='lifestyle,health,env
         response = requests.get(NEWSDATA_SOURCES_URL, params=params, timeout=15)
         # Gestion des erreurs de retour API
         if response.status_code != 200:
-            logger.warning(f"⚠️ Erreur API NewsData: {response.status_code}")
+            logger.warning(f"Erreur API NewsData: {response.status_code}")
             return {}
 
         # Conversion et log du nombre de sources récupérées
         data = response.json()
-        logger.info(f"✓ Données NewsData récupérées: {len(data.get('results', []))} sources")
+        logger.info(f"Données NewsData récupérées: {len(data.get('results', []))} sources")
         return data
     except Exception as e:
         # En cas de plantage réseau ou parse, renvoie un dictionnaire vide
-        logger.error(f"✗ Erreur récupération sources NewsData: {e}")
+        logger.error(f"Erreur récupération sources NewsData: {e}")
         return {}
 
 
@@ -361,7 +361,7 @@ def get_news_articles(country='ma', language='fr', category='environment,health,
         response = requests.get(NEWSDATA_NEWS_URL, params=params, timeout=20)
         # Log en cas d'erreur de retour
         if response.status_code != 200:
-            logger.warning(f"⚠️ Erreur API NewsData articles: {response.status_code}")
+            logger.warning(f"Erreur API NewsData articles: {response.status_code}")
             return []
         data = response.json()
         rows = data.get('results') or []
@@ -431,7 +431,7 @@ def fetch_rss_environment_news(max_items=14):
             # Parsing de l'arbre XML du flux RSS
             root = ET.fromstring(r.content)
         except Exception as e:
-            logger.warning(f'⚠ Flux RSS indisponible {feed_url}: {e}')
+            logger.warning(f'Flux RSS indisponible {feed_url}: {e}')
             continue
 
         # Extraction des items de l'arborescence XML
@@ -549,12 +549,6 @@ def normalize_news_source_card(s):
         'tag': tag_label,
         'tag_style': tag_style,
     }
-        'name': name,
-        'sub': sub,
-        'tag': tag_label,
-        'tag_style': tag_style,
-    }
-
 
 def get_weather_data(lat=None, lon=None, city=None):
     """
@@ -572,11 +566,11 @@ def get_weather_data(lat=None, lon=None, city=None):
     if weather_cache['data'] and weather_cache['timestamp']:
         age = (datetime.now() - weather_cache['timestamp']).seconds
         if age < weather_cache['cache_duration']:
-            logger.info("☁️ Utilisation des données météo en cache")
+            logger.info("Utilisation des données météo en cache")
             return weather_cache['data']
     
     if not WEATHER_API_KEY or WEATHER_API_KEY == 'your_api_key_here':
-        logger.warning("⚠️ Clé API météo non configurée")
+        logger.warning("Clé API météo non configurée")
         # Retourner des données de test
         return {
             'temperature': 25.0,
@@ -643,14 +637,14 @@ def get_weather_data(lat=None, lon=None, city=None):
             weather_cache['data'] = weather_data
             weather_cache['timestamp'] = datetime.now()
             
-            logger.info(f"✓ Données météo récupérées: {weather_data['city']}, {weather_data['temperature']}°C")
+            logger.info(f"Données météo récupérées: {weather_data['city']}, {weather_data['temperature']}°C")
             return weather_data
         else:
-            logger.error(f"✗ Erreur API météo: {response.status_code}")
+            logger.error(f"Erreur API météo: {response.status_code}")
             return None
             
     except Exception as e:
-        logger.error(f"✗ Erreur récupération météo: {e}")
+        logger.error(f"Erreur récupération météo: {e}")
         return None
 
 
@@ -668,7 +662,7 @@ def get_weather_forecast(lat=None, lon=None, city=None, days=5):
         dict: Prévisions météo
     """
     if not WEATHER_API_KEY or WEATHER_API_KEY == 'your_api_key_here':
-        logger.warning("⚠️ Clé API météo non configurée pour prévisions")
+        logger.warning("Clé API météo non configurée pour prévisions")
         return {'success': False, 'error': 'API non configurée'}
     
     try:
@@ -1007,16 +1001,14 @@ def predictions_view():
                         recommendations.append({
                             'title': 'Attention Pollution',
                             'message': 'Des niveaux élevés sont prévus. Limitez les activités physiques intenses.',
-                            'icon': '⚠️',
                         })
                     else:
                         recommendations.append({
                             'title': 'Qualité Stable',
                             'message': 'La qualité de l\'air devrait rester acceptable pour les prochaines 24h.',
-                            'icon': '✅',
                         })
         except Exception as ml_err:
-            logger.warning(f"⚠️ Erreur modèle ML (utilisation fallback): {ml_err}")
+            logger.warning(f"Erreur modèle ML (utilisation fallback): {ml_err}")
         
         # Si aucune prédiction ML, utiliser les données de secours (toujours fonctionnel sur Raspberry Pi)
         if not predictions:
@@ -1053,22 +1045,18 @@ def predictions_view():
 
         reco_cards = [
             {
-                'icon': '🌿',
                 'title': 'Ventilation',
                 'message': 'Aérez votre maison tôt le matin ou tard le soir, quand la pollution est plus faible.',
             },
             {
-                'icon': '🏃',
                 'title': 'Activité physique',
                 'message': 'Évitez le sport intense en extérieur aux heures de pic de pollution signalées.',
             },
             {
-                'icon': '😷',
                 'title': 'Protection',
                 'message': 'Les personnes sensibles devraient limiter les sorties prolongues aux pics.',
             },
             {
-                'icon': '📡',
                 'title': 'Surveillance',
                 'message': 'Température et humidité actuelles restent dans des plages habituelles — suivez l\'IQA.',
             },
@@ -1117,7 +1105,6 @@ def predictions_view():
             recommendations=[],
             reco_cards=[
                 {
-                    'icon': '📦',
                     'title': 'Mode Simulation',
                     'message': (
                         'Les prédictions de secours s’affichent. '
@@ -1578,7 +1565,7 @@ def get_predictions():
         
         # Vérifier que le modèle ML est chargé
         if not predictor.model:
-            logger.warning("⚠️ Modèle ML non chargé, tentative de chargement...")
+            logger.warning("Modèle ML non chargé, tentative de chargement...")
             if not predictor.load_model():
                 return jsonify({
                     'success': False,
@@ -1621,16 +1608,15 @@ def get_predictions():
         recommendations = []
         if recommendations_raw.get('current_status'):
             recommendations.append({
-                'icon': '📊',
                 'title': 'Statut actuel',
                 'message': recommendations_raw['current_status']
             })
         for action in recommendations_raw.get('actions', []):
-            recommendations.append({'icon': '✓', 'title': 'Action', 'message': action})
+            recommendations.append({'title': 'Action', 'message': action})
         for advice in recommendations_raw.get('health_advice', []):
-            recommendations.append({'icon': '💡', 'title': 'Conseil santé', 'message': advice})
+            recommendations.append({'title': 'Conseil santé', 'message': advice})
         for period in recommendations_raw.get('time_periods_to_avoid', []):
-            recommendations.append({'icon': '⏰', 'title': 'Période à éviter', 'message': period})
+            recommendations.append({'title': 'Période à éviter', 'message': period})
         
         response = {
             'success': True,
@@ -1708,55 +1694,36 @@ def health_check():
         }
     })
 
-
-
-
-
-
-# ============= FONCTIONS BROADCAST (Désactivées) =============
-
-def broadcast_sensor_data(data):
-    """Plus utilisé dans la version sans JS"""
-    pass
-
-def broadcast_alert(alert):
-    """Plus utilisé dans la version sans JS"""
-    pass
-
-
 # ============= INITIALISATION =============
 
 def initialize_server():
     """Initialise le serveur et les connexions"""
     global db
     
-    logger.info("=" * 60)
-    logger.info("🚀 INITIALISATION DU SERVEUR AIRWATCH v2.2")
-    logger.info("=" * 60)
-    logger.info("")
+    logger.info("INITIALISATION DU SERVEUR AIRWATCH v2.2")
     
     # Connexion à la base de données SQLite3
     db_path = config.DB_CONFIG.get('db_path', './data/air_quality.db')
     db = AirQualityDatabase(db_path=db_path)
     
     if db.connect():
-        logger.info("✓ Connexion base de données établie")
+        logger.info("Connexion base de données établie")
         db.create_tables()
     else:
-        logger.error("✗ Échec connexion base de données")
+        logger.error("Échec connexion base de données")
     
     # Charger le modèle ML
     if predictor.load_model():
-        logger.info("✓ Modèle ML chargé")
+        logger.info("Modèle ML chargé")
     else:
-        logger.warning("⚠ Modèle ML non disponible")
+        logger.warning("Modèle ML non disponible")
         logger.info("  Pour entraîner le modèle : python3 ml_model.py")
     
     # Vérifier la configuration Weather API
     if WEATHER_API_KEY and WEATHER_API_KEY != 'your_api_key_here':
-        logger.info("✓ API météo configurée (OpenWeatherMap)")
+        logger.info("API météo configurée (OpenWeatherMap)")
     else:
-        logger.warning("⚠ API météo non configurée")
+        logger.warning("API météo non configurée")
         logger.info("  1. Visitez https://openweathermap.org/api")
         logger.info("  2. Créez un compte gratuit")
         logger.info("  3. Ajoutez OPENWEATHER_API_KEY dans .env")
@@ -1797,29 +1764,25 @@ if __name__ == '__main__':
     port = config.FLASK_CONFIG['port']
     debug = config.FLASK_CONFIG['debug']
     
-    logger.info("=" * 60)
-    logger.info("🌐 DÉMARRAGE DU SERVEUR")
-    logger.info("=" * 60)
+    logger.info("DÉMARRAGE DU SERVEUR")
     logger.info(f"")
-    logger.info(f"📍 URL locale:     http://localhost:{port}")
-    logger.info(f"📱 URL réseau:     http://{host}:{port}")
+    logger.info(f"URL locale:     http://localhost:{port}")
+    logger.info(f"URL réseau:     http://{host}:{port}")
     logger.info(f"")
-    logger.info(f"📊 Dashboard:      http://localhost:{port}/")
-    logger.info(f"🗺️  Carte GPS:      http://localhost:{port}/map")
-    logger.info(f"🧠 Prédictions IA: http://localhost:{port}/predictions")
+    logger.info(f"Dashboard:      http://localhost:{port}/")
+    logger.info(f"Carte GPS:      http://localhost:{port}/map")
+    logger.info(f"Prédictions IA: http://localhost:{port}/predictions")
     logger.info(f"")
-    logger.info(f"🔌 API Health:     http://localhost:{port}/api/health")
+    logger.info(f"API Health:     http://localhost:{port}/api/health")
     logger.info(f"")
-    logger.info("=" * 60)
-    logger.info("✨ NOUVEAUTÉS v2.2:")
+    logger.info("NOUVEAUTÉS v2.2:")
     logger.info("  • Responsive Design (mobile/tablette/desktop)")
     logger.info("  • Sans authentification (accès immédiat)")
     logger.info("  • Menu hamburger sur mobile")
-    logger.info("=" * 60)
     logger.info(f"")
-    logger.info("🔴 Appuyez sur Ctrl+C pour arrêter le serveur")
+    logger.info("Appuyez sur Ctrl+C pour arrêter le serveur")
     logger.info(f"")
     
     # Lancer le serveur Flask
-    logger.info(f"🚀 Serveur Web démarré sur http://{host}:{port}")
+    logger.info(f"Serveur Web démarré sur http://{host}:{port}")
     app.run(host=host, port=port, debug=debug, use_reloader=False)
