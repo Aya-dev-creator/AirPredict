@@ -7,7 +7,7 @@ Ce script est le point d'entrée principal du système. Il orchestre tous les co
 - Lecture des capteurs (MQ-135 pour la qualité de l'air, DHT11 pour température/humidité, GPS NEO-6M)
 - Stockage des données en base de données SQLite3
 - Prédictions ML avec RandomForest pour anticiper la qualité de l'air
-- Alertes en temps réel via email et MQTT
+- Système d'alertes en temps réel stockées en base de données
 - Serveur web Flask pour visualisation des données (interface SSR sans JavaScript)
 
 Architecture:

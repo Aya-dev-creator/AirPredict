@@ -1614,53 +1614,6 @@ def get_alerts():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/settings', methods=['POST'])
-def save_settings():
-    """
-    Sauvegarde les paramètres utilisateur (email pour alertes)
-    SANS authentification - stockage local dans le navigateur
-    
-    Body JSON:
-        {
-            "email": "user@example.com",
-            "alertsEnabled": true
-        }
-    
-    Returns:
-        JSON: Confirmation de sauvegarde
-    """
-    try:
-        data = request.get_json()
-        email = data.get('email')
-        alerts_enabled = data.get('alertsEnabled', True)
-        
-        # Valider l'email
-        if email and '@' in email and '.' in email:
-            # L'email est stocké côté client dans localStorage
-            # On peut optionnellement le logger ou l'utiliser pour envoyer des alertes
-            
-            logger.info(f"✓ Paramètres sauvegardés - Email: {email}, Alertes: {alerts_enabled}")
-            
-            return jsonify({
-                'success': True,
-                'message': 'Paramètres sauvegardés avec succès',
-                'email': email,
-                'alertsEnabled': alerts_enabled
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Email invalide'
-            }), 400
-            
-    except Exception as e:
-        logger.error(f"Erreur sauvegarde paramètres: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """
@@ -1749,74 +1702,6 @@ def initialize_server():
 
 
 
-
-
-def _hf_chat_completion(hf_api_key, messages, model_id=None):
-    """
-    Appelle Hugging Face InferenceClient (meilleure approche avec permissions).
-    Retourne (texte, status_code, corps_brut_tronqué).
-    """
-    if not hf_api_key:
-        logger.warning("HF_API_KEY vide, passage au prochain service...")
-        return None, 0, ''
-    
-    try:
-        from huggingface_hub import InferenceClient
-    except ImportError:
-        logger.warning("⚠ huggingface_hub not installed. Install with: pip install huggingface-hub")
-        return None, 0, 'huggingface_hub not installed'
-    
-    try:
-        client = InferenceClient(api_key=hf_api_key)
-        
-        # Essayer avec le modèle spécifié ou le fallback
-        models_to_try = []
-        if model_id:
-            models_to_try.append(model_id)
-        
-        # Modèles disponibles et fiables
-        models_to_try.extend([
-            'Qwen/Qwen2.5-72B-Instruct',
-            'meta-llama/Llama-3.1-70b-instruct',
-            'mistralai/Mistral-7B-Instruct-v0.3',
-            'HuggingFaceTB/SmolLM2-1.7B-Instruct',
-        ])
-        
-        for model in models_to_try:
-            try:
-                logger.info(f"🔮 Essai HF InferenceClient avec {model}...")
-                
-                response = client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    max_tokens=256,
-                    temperature=0.7,
-                    timeout=30
-                )
-                
-                text = response.choices[0].message.content
-                if text:
-                    logger.info(f'✓ HF InferenceClient OK — {model}')
-                    return text, 200, text[:500]
-                    
-            except Exception as model_err:
-                err_msg = str(model_err)
-                if 'not available' in err_msg.lower() or 'not found' in err_msg.lower():
-                    logger.warning(f"⚠ Modèle {model} indisponible: {err_msg[:100]}")
-                    continue
-                elif 'timeout' in err_msg.lower():
-                    logger.warning(f"⚠ Timeout avec {model}")
-                    continue
-                else:
-                    logger.warning(f"⚠ Erreur HF {model}: {err_msg[:100]}")
-                    continue
-        
-        logger.error("✗ Aucun modèle HF disponible")
-        return None, 0, 'No HF models available'
-        
-    except Exception as e:
-        logger.error(f"✗ HF InferenceClient error: {str(e)[:200]}")
-        return None, 0, str(e)[:500]
 
 # ============= DÉMARRAGE DU SERVEUR =============
 
