@@ -8,6 +8,7 @@ python-dotenv==1.0.0
 RPi.GPIO==0.7.1
 adafruit-circuitpython-dht==4.0.3
 adafruit-blinka==8.20.0
+adafruit-circuitpython-ads1x15
 
 # GPS
 gpsd-py3==0.3.0

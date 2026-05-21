@@ -1,10 +1,10 @@
 """
 Module de gestion des capteurs Raspberry Pi
-Gère la lecture des capteurs: MQ-135 (qualité de l'air), DHT11 (température/humidité), GPS NEO-6M
+Gère la lecture des capteurs: MQ-135 (qualité de l'air), DHT11 (température/humidité), Localisation
 
 Ce module fournit une interface pour interagir avec les capteurs physiques connectés
-au Raspberry Pi. Il inclut des modes de simulation pour permettre le développement
-sur des ordinateurs qui ne sont pas des Raspberry Pi.
+au Raspberry Pi 4. Les capteurs MQ-135 et DHT11 nécessitent le matériel Raspberry Pi.
+La localisation utilise l'API de géolocalisation IP (pas de capteur GPS physique).
 
 Capteurs supportés:
 1. MQ-135: Capteur de qualité de l'air (détecte CO2, fumée, gaz combustibles)
@@ -13,65 +13,38 @@ Capteurs supportés:
 2. DHT11: Capteur de température et d'humidité
    - Lecture numérique via protocole propriétaire
    - Précision: ±2°C pour la température, ±5% pour l'humidité
-3. GPS NEO-6M: Module GPS pour la localisation
-   - Communication série via gpsd
-   - Fournit latitude, longitude, altitude, vitesse
+3. Localisation: Géolocalisation IP du device
+   - Utilise l'API ipinfo.io pour obtenir la position
+   - Pas de matériel GPS requis
 
 Architecture:
 - MQ135Sensor: Classe pour le capteur MQ-135
 - DHT11Sensor: Classe pour le capteur DHT11
-- GPSSensor: Classe pour le module GPS
+- GPSSensor: Classe pour la localisation IP
 - SensorManager: Gestionnaire central qui coordonne tous les capteurs
-
-Mode simulation:
-Si les modules Raspberry Pi ne sont pas disponibles, le système fonctionne en mode simulation
-en générant des données aléatoires réalistes. Cela permet le développement et les tests
-sans matériel Raspberry Pi.
 """
 
-import time  # Module pour les pauses et le timing
-import logging  # Module pour la journalisation
-from datetime import datetime  # Module pour les dates et heures
+# ============= IMPORTS SYSTÈME =============
+import time  # Module pour les pauses et le temps
+from datetime import datetime  # Module pour manipuler les dates et heures
+import logging  # Module pour la journalisation (logs) du système
+
+# ============= IMPORTS RASPBERRY PI (REQUIS) =============
+# Ces imports sont requis pour le fonctionnement sur Raspberry Pi 4
+# Les capteurs MQ-135 et DHT11 nécessitent ce matériel
+import board  # Bibliothèque pour les broches GPIO (Adafruit)
+import busio  # Bibliothèque pour le bus I2C
+import adafruit_dht  # Bibliothèque pour le capteur DHT11
+import RPi.GPIO as GPIO  # Bibliothèque pour le contrôle GPIO
+import adafruit_ads1x15.ads1115 as ADS  # Bibliothèque pour l'ADC ADS1115
+from adafruit_ads1x15.analog_in import AnalogIn  # Classe pour les entrées analogiques
+
+# ============= IMPORTS POUR LA GÉOLOCALISATION =============
+import requests  # Bibliothèque pour les requêtes HTTP (géolocalisation IP)
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ============= IMPORTS CONDITIONNELS RASPBERRY PI =============
-# Ces imports sont conditionnels pour permettre le développement hors Raspberry Pi
-# Si les modules ne sont pas disponibles, le système fonctionne en mode simulation
-
-# Import des modules GPIO et DHT11
-try:
-    import RPi.GPIO as GPIO  # type: ignore  # Bibliothèque pour les broches GPIO
-    import adafruit_dht  # type: ignore  # Bibliothèque pour le capteur DHT11
-    import board  # type: ignore  # Bibliothèque pour les broches du Raspberry Pi
-    RPI_AVAILABLE = True
-    logger.info("✓ Modules Raspberry Pi chargés avec succès")
-except ImportError:
-    RPI_AVAILABLE = False
-    logger.warning("⚠ Modules Raspberry Pi non disponibles - Mode simulation activé")
-
-# Import du module GPS
-try:
-    from gpsd import gps, WATCH_ENABLE  # type: ignore  # Bibliothèque pour le GPS via gpsd
-    GPS_AVAILABLE = True
-except ImportError:
-    GPS_AVAILABLE = False
-    logger.warning("⚠ Module GPS non disponible")
-
-# Import des modules ADS1115 (ADC pour le MQ-135)
-try:
-    import board  # type: ignore  # Bibliothèque pour les broches I2C
-    import busio  # type: ignore  # Bibliothèque pour le bus I2C
-    import adafruit_ads1x15.ads1115 as ADS  # type: ignore  # Bibliothèque pour l'ADC ADS1115
-    from adafruit_ads1x15.analog_in import AnalogIn  # type: ignore  # Lecture analogique
-    ADS_AVAILABLE = True
-except ImportError:
-    ADS_AVAILABLE = False
-    logger.warning("⚠ Module ADS1115 non disponible")
-
-# Modification de la classe MQ135Sensor
 
 class MQ135Sensor:
     """
@@ -130,71 +103,65 @@ class MQ135Sensor:
         # L'ADS1115 est un convertisseur analogique-numérique 16-bit
         # Il communique via le bus I2C (adresse par défaut: 0x48)
         # Il a 4 canaux analogiques (A0, A1, A2, A3)
-        if ADS_AVAILABLE:
-            try:
-                # Initialiser le bus I2C
-                # SCL: Serial Clock (horloge), SDA: Serial Data (données)
-                i2c = busio.I2C(board.SCL, board.SDA)
-                
-                # Attendre que le bus I2C soit disponible
-                while not i2c.try_lock():
-                    time.sleep(0.1)
-                
-                # Scanner les adresses I2C disponibles pour vérifier la connexion
-                logger.info("Scanning I2C bus...")
-                addresses = i2c.scan()
-                i2c.unlock()
-                
-                if addresses:
-                    logger.info(f"Adresses I2C trouvées: {[hex(addr) for addr in addresses]}")
-                else:
-                    logger.warning("Aucune adresse I2C trouvée")
-                
-                # Initialiser ADS1115 avec plusieurs tentatives (gestion d'erreur robuste)
-                for attempt in range(3):
-                    try:
-                        self.ads = ADS.ADS1115(i2c, address=0x48)  # Adresse par défaut de l'ADS1115
-                        
-                        # Mapper le canal ADC (0-3) à l'attribut correspondant (ADS.P0-ADS.P3)
-                        channel_map = {0: ADS.P0, 1: ADS.P1, 2: ADS.P2, 3: ADS.P3}
-                        channel_attr = channel_map.get(adc_channel, ADS.P0)
-                        
-                        # Créer l'objet de lecture analogique pour le canal spécifié
-                        self.adc_channel_obj = AnalogIn(self.ads, channel_attr)
-                        logger.info(f"✓ ADS1115 initialisé sur canal {adc_channel} (adresse 0x48)")
-                        break  # Sortir de la boucle si l'initialisation a réussi
-                    except ValueError as e:
-                        if "0x48" in str(e):
-                            logger.warning(f"Tentative {attempt + 1}/3: {e}")
-                            time.sleep(1)  # Attendre avant de réessayer
-                        else:
-                            raise  # Propager l'erreur si ce n'est pas une erreur d'adresse
-                    except Exception as e:
-                        logger.error(f"Erreur initialisation ADS1115: {e}")
-                        break  # Sortir de la boucle en cas d'erreur
-                        
-                if self.adc_channel_obj is None:
-                    logger.error("Impossible d'initialiser l'ADS1115 après plusieurs tentatives")
+        try:
+            # Initialiser le bus I2C
+            # SCL: Serial Clock (horloge), SDA: Serial Data (données)
+            i2c = busio.I2C(board.SCL, board.SDA)
+            
+            # Attendre que le bus I2C soit disponible
+            while not i2c.try_lock():
+                time.sleep(0.1)
+            
+            # Scanner les adresses I2C disponibles pour vérifier la connexion
+            logger.info("Scanning I2C bus...")
+            addresses = i2c.scan()
+            i2c.unlock()
+            
+            if addresses:
+                logger.info(f"Adresses I2C trouvées: {[hex(addr) for addr in addresses]}")
+            else:
+                logger.warning("Aucune adresse I2C trouvée")
+            
+            # Initialiser ADS1115 avec plusieurs tentatives (gestion d'erreur robuste)
+            for attempt in range(3):
+                try:
+                    self.ads = ADS.ADS1115(i2c, address=0x48)  # Adresse par défaut de l'ADS1115
                     
-            except Exception as e:
-                logger.error(f"✗ Erreur initialisation ADS1115/I2C: {e}")
-                self.adc_channel_obj = None
-        else:
-            self.adc_channel_obj = None
-            logger.warning("⚠ Mode simulation MQ-135 activé (ADS1115 non disponible)")
+                    # Mapper le canal ADC (0-3) à l'attribut correspondant (ADS.P0-ADS.P3)
+                    channel_map = {0: ADS.P0, 1: ADS.P1, 2: ADS.P2, 3: ADS.P3}
+                    channel_attr = channel_map.get(adc_channel, ADS.P0)
+                    
+                    # Créer l'objet de lecture analogique pour le canal spécifié
+                    self.adc_channel_obj = AnalogIn(self.ads, channel_attr)
+                    logger.info(f"✓ ADS1115 initialisé sur canal {adc_channel} (adresse 0x48)")
+                    break  # Sortir de la boucle si l'initialisation a réussi
+                except ValueError as e:
+                    if "0x48" in str(e):
+                        logger.warning(f"Tentative {attempt + 1}/3: {e}")
+                        time.sleep(1)  # Attendre avant de réessayer
+                    else:
+                        raise  # Propager l'erreur si ce n'est pas une erreur d'adresse
+                except Exception as e:
+                    logger.error(f"Erreur initialisation ADS1115: {e}")
+                    break  # Sortir de la boucle en cas d'erreur
+                    
+            if self.adc_channel_obj is None:
+                logger.error("Impossible d'initialiser l'ADS1115 après plusieurs tentatives")
+                
+        except Exception as e:
+            logger.error(f"✗ Erreur initialisation ADS1115/I2C: {e}")
+            raise  # Propager l'erreur car le capteur est requis
             
         # ============= INITIALISATION DU PIN DIGITAL DOUT =============
         # La sortie DOUT passe à LOW quand le seuil de gaz est dépassé
         # Ce seuil est réglable via le potentiomètre sur le module MQ-135
-        if RPI_AVAILABLE:
-            try:
-                GPIO.setmode(GPIO.BCM)  # Utiliser la numérotation BCM des broches
-                GPIO.setup(self.digital_pin, GPIO.IN)  # Configurer la broche en entrée
-                logger.info(f"✓ Capteur MQ-135 DOUT initialisé sur GPIO {self.digital_pin}")
-            except Exception as e:
-                logger.error(f"Erreur initialisation GPIO: {e}")
-        else:
-            logger.warning("⚠ GPIO non disponible pour MQ-135")
+        try:
+            GPIO.setmode(GPIO.BCM)  # Utiliser la numérotation BCM des broches
+            GPIO.setup(self.digital_pin, GPIO.IN)  # Configurer la broche en entrée
+            logger.info(f"✓ Capteur MQ-135 DOUT initialisé sur GPIO {self.digital_pin}")
+        except Exception as e:
+            logger.error(f"Erreur initialisation GPIO: {e}")
+            raise  # Propager l'erreur car le GPIO est requis
     
     def read_analog_value(self):
         """
@@ -204,18 +171,10 @@ class MQ135Sensor:
         L'ADS1115 est un convertisseur analogique-numérique 16-bit qui retourne
         des valeurs entre 0 et 26400 (pour la plage ±4.096V par défaut).
         
-        En mode simulation (si ADS1115 non disponible), génère une valeur aléatoire
-        réaliste entre 5000 et 20000.
-        
         Returns:
             int: Valeur analogique (0-26400 pour ADS1115 16-bit)
                   Retourne 0 en cas d'erreur
         """
-        if not ADS_AVAILABLE or self.adc_channel_obj is None:
-            # Mode simulation: générer une valeur aléatoire réaliste
-            import random
-            return random.randint(5000, 20000)
-        
         try:
             # Lire la valeur brute de l'ADS1115
             value = self.adc_channel_obj.value  # Valeur brute (0-26400)
@@ -237,11 +196,8 @@ class MQ135Sensor:
         
         Returns:
             bool: True si le seuil est dépassé (DOUT = LOW), False sinon
-                  Retourne False en cas d'erreur ou si GPIO non disponible
+                  Retourne False en cas d'erreur
         """
-        if not RPI_AVAILABLE:
-            return False  # Mode simulation: toujours False
-        
         try:
             # DOUT est LOW quand le seuil de gaz est dépassé
             return GPIO.input(self.digital_pin) == GPIO.LOW
@@ -442,26 +398,17 @@ class DHT11Sensor:
         """
         self.pin = pin  # Stocker le numéro de broche GPIO
         
-        if RPI_AVAILABLE:
-            try:
-                # Essayer d'abord avec board.D4, sinon utiliser le numéro de pin directement
-                # board.D4 est la notation préférée pour la bibliothèque adafruit_dht
-                try:
-                    pin_board = getattr(board, f'D{pin}')
-                except AttributeError:
-                    # Si D4 n'existe pas, utiliser la notation BOARD directe
-                    pin_board = pin
-                
-                # Initialiser le capteur DHT11 avec la bibliothèque adafruit_dht
-                self.sensor = adafruit_dht.DHT11(pin_board)
-                logger.info(f"✓ Capteur DHT11 initialisé sur GPIO {self.pin}")
-            except Exception as e:
-                logger.error(f"✗ Erreur initialisation DHT11: {e}")
-                logger.info("Essaie avec l'initialisation alternative...")
-                self.sensor = None  # Marquer comme non initialisé
-        else:
-            self.sensor = None
-            logger.warning("⚠ Mode simulation DHT11 activé")
+        # Essayer d'abord avec board.D4, sinon utiliser le numéro de pin directement
+        # board.D4 est la notation préférée pour la bibliothèque adafruit_dht
+        try:
+            pin_board = getattr(board, f'D{pin}')
+        except AttributeError:
+            # Si D4 n'existe pas, utiliser la notation BOARD directe
+            pin_board = pin
+        
+        # Initialiser le capteur DHT11 avec la bibliothèque adafruit_dht
+        self.sensor = adafruit_dht.DHT11(pin_board)
+        logger.info(f"✓ Capteur DHT11 initialisé sur GPIO {self.pin}")
     
     def read(self):
         """
@@ -470,11 +417,6 @@ class DHT11Sensor:
         Cette méthode lit les données de température et d'humidité du capteur DHT11.
         Elle inclut une gestion d'erreur robuste avec plusieurs tentatives de lecture
         car le capteur DHT11 est connu pour être instable.
-        
-        En mode simulation (si Raspberry Pi non disponible), génère des valeurs
-        aléatoires réalistes:
-        - Température: 15°C à 35°C
-        - Humidité: 30% à 80%
         
         Returns:
             dict: Dictionnaire contenant les données du capteur:
@@ -487,31 +429,25 @@ class DHT11Sensor:
                   Retourne un dictionnaire avec None pour les valeurs en cas d'erreur
         """
         try:
-            if not RPI_AVAILABLE or self.sensor is None:
-                # Mode simulation: générer des valeurs aléatoires réalistes
-                import random
-                temperature = round(random.uniform(15.0, 35.0), 1)
-                humidity = round(random.uniform(30.0, 80.0), 1)
-            else:
-                # Lecture réelle du capteur avec gestion d'erreur améliorée
-                try:
-                    # Première tentative de lecture
+            # Lecture réelle du capteur avec gestion d'erreur améliorée
+            try:
+                # Première tentative de lecture
+                temperature = self.sensor.temperature
+                humidity = self.sensor.humidity
+                
+                # Réessayer si la lecture a échoué (valeurs None)
+                if temperature is None or humidity is None:
+                    time.sleep(1)  # Attendre avant de réessayer
                     temperature = self.sensor.temperature
                     humidity = self.sensor.humidity
                     
-                    # Réessayer si la lecture a échoué (valeurs None)
-                    if temperature is None or humidity is None:
-                        time.sleep(1)  # Attendre avant de réessayer
-                        temperature = self.sensor.temperature
-                        humidity = self.sensor.humidity
-                        
-                except RuntimeError as e:
-                    # RuntimeError est courant avec le DHT11 (timeout, checksum error, etc.)
-                    logger.warning(f"RuntimeError DHT11: {e}, réessai...")
-                    time.sleep(2)  # Attendre plus longtemps avant de réessayer
-                    temperature = self.sensor.temperature
-                    humidity = self.sensor.humidity
-                    
+            except RuntimeError as e:
+                # RuntimeError est courant avec le DHT11 (timeout, checksum error, etc.)
+                logger.warning(f"RuntimeError DHT11: {e}, réessai...")
+                time.sleep(2)  # Attendre plus longtemps avant de réessayer
+                temperature = self.sensor.temperature
+                humidity = self.sensor.humidity
+                
             # Vérifier la validité des données après toutes les tentatives
             if temperature is None or humidity is None:
                 raise Exception("Données DHT11 invalides après plusieurs tentatives")
@@ -548,127 +484,107 @@ class DHT11Sensor:
         Elle doit être appelée avant de terminer le programme pour éviter
         les problèmes de verrouillage des broches GPIO.
         """
-        if RPI_AVAILABLE and self.sensor:
-            self.sensor.exit()  # Libérer les ressources du capteur
+        self.sensor.exit()  # Libérer les ressources du capteur
 
 class GPSSensor:
     """
-    Classe pour gérer le GPS NEO-6M
+    Classe pour gérer la localisation du device
     
-    Le module GPS NEO-6M est un récepteur GPS qui fournit:
-    - Latitude et longitude (position géographique)
-    - Altitude (hauteur au-dessus du niveau de la mer)
-    - Vitesse (vitesse de déplacement)
-    - Date et heure UTC
-    - Nombre de satellites visibles
-    
-    Caractéristiques:
-    - Fréquence: 1575.42 MHz (bande L1 GPS)
-    - Précision: ~2.5m CEP (Circle Error Probable)
-    - Communication: Série (UART) à 9600 bauds par défaut
-    - Protocole: NMEA 0183 (standard pour les données GPS)
+    Au lieu d'utiliser un capteur GPS physique (NEO-6M), cette classe
+    utilise la géolocalisation basée sur l'adresse IP du device.
+    Cela permet d'obtenir la localisation sans matériel GPS supplémentaire.
     
     Fonctionnement:
-    - Le module communique via le port série avec le Raspberry Pi
-    - Le daemon gpsd (GPS Daemon) gère la communication avec le module GPS
-    - La bibliothèque python-gpsd fournit une interface pour lire les données GPS
-    - Le module peut prendre plusieurs minutes pour obtenir un fix GPS au démarrage
+    - Utilise une API de géolocalisation IP (ex: ipinfo.io)
+    - Retourne la latitude et longitude approximatives du device
+    - La précision dépend de la précision de l'IP géolocalisation
+    - En mode simulation, retourne des coordonnées par défaut
     
     Note:
-    - Le GPS nécessite une vue dégagée du ciel pour fonctionner correctement
-    - En intérieur, le GPS peut ne pas obtenir de fix ou avoir une précision réduite
-    - Le module a besoin d'une antenne GPS externe pour une meilleure réception
+    - La précision de la géolocalisation IP est généralement de quelques kilomètres
+    - Pour une précision GPS exacte, un capteur GPS physique serait nécessaire
+    - L'interface web peut utiliser l'API de géolocalisation du navigateur pour une meilleure précision
     """
     
     def __init__(self):
         """
-        Initialise le GPS NEO-6M
+        Initialise le capteur de localisation
         
-        Cette méthode initialise la connexion avec le module GPS via le daemon gpsd.
-        Le daemon gpsd doit être en cours d'exécution sur le système pour que
-        le GPS fonctionne.
-        
-        Pour démarrer gpsd:
-            sudo systemctl start gpsd
-            sudo gpsd /dev/ttyAMA0 -F /var/run/gpsd.sock
-        
-        Args:
-            Aucun argument requis
+        Cette méthode initialise le capteur de localisation basé sur IP.
+        Aucun matériel GPS n'est requis.
         """
-        self.gps_session = None  # Session GPS
-        
-        if GPS_AVAILABLE:
-            try:
-                # Initialiser la session GPS avec le mode WATCH_ENABLE
-                # WATCH_ENABLE: active le mode streaming pour recevoir les données en continu
-                self.gps_session = gps(mode=WATCH_ENABLE)
-                logger.info("✓ GPS NEO-6M initialisé")
-            except Exception as e:
-                logger.error(f"✗ Erreur initialisation GPS: {e}")
-                self.gps_session = None
-        else:
-            logger.warning("⚠ Mode simulation GPS activé")
+        self.gps_session = None  # Pas de session GPS (utilise IP géolocalisation)
+        logger.info("✓ Localisation basée sur IP initialisée")
     def read(self):
         """
-        Lit les coordonnées GPS actuelles
+        Lit les coordonnées de localisation du device
         
-        Cette méthode lit les données de position GPS du module NEO-6M via le daemon gpsd.
-        Elle retourne la latitude, longitude, altitude, vitesse et d'autres informations.
+        Cette méthode utilise la géolocalisation IP pour obtenir la position
+        approximative du device. Elle tente de contacter une API de géolocalisation
+        (ex: ipinfo.io) pour obtenir la latitude et longitude.
         
-        En mode simulation (si GPS non disponible), retourne des coordonnées par défaut
-        (Tunis, Tunisie: 36.8065, 10.1815).
+        En cas d'échec ou en mode simulation, retourne None pour les coordonnées.
+        L'interface web peut utiliser l'API de géolocalisation du navigateur pour
+        une meilleure précision.
         
         Returns:
-            dict: Dictionnaire contenant les données GPS:
-                  - sensor: Nom du capteur ('GPS NEO-6M')
+            dict: Dictionnaire contenant les données de localisation:
+                  - sensor: Nom du capteur ('Device Location')
                   - timestamp: Heure de la lecture (ISO format)
-                  - latitude: Latitude en degrés décimaux (None si pas de fix)
-                  - longitude: Longitude en degrés décimaux (None si pas de fix)
-                  - altitude: Altitude en mètres (0 si pas disponible)
-                  - speed: Vitesse en m/s (0 si pas disponible)
-                  - fix: True si fix GPS obtenu, False sinon
-                  - satellites: Nombre de satellites visibles (0 si pas disponible)
-                  Retourne un dictionnaire avec None pour latitude/longitude si pas de fix
+                  - latitude: Latitude en degrés décimaux (None si erreur)
+                  - longitude: Longitude en degrés décimaux (None si erreur)
+                  - fix: True si localisation obtenue, False sinon
+                  Retourne un dictionnaire avec None pour latitude/longitude si erreur
         """
         try:
-            if not GPS_AVAILABLE or self.gps_session is None:
-                # Mode simulation: coordonnées d'exemple (Tunis, Tunisie)
-                data = {
-                    'sensor': 'GPS NEO-6M',
-                    'timestamp': datetime.now().isoformat(),
-                    'latitude': 36.8065,
-                    'longitude': 10.1815,
-                    'altitude': 0,
-                    'fix': True,
-                    'satellites': 0
-                }
-            else:
-                # Lecture réelle du GPS via gpsd
-                report = self.gps_session.next()  # Attendre le prochain rapport GPS
-                
-                # Vérifier si le rapport est de type TPV (Time-Position-Velocity)
-                # TPV contient les données de position et de vitesse
-                if report['class'] == 'TPV':
-                    data = {
-                        'sensor': 'GPS NEO-6M',
-                        'timestamp': datetime.now().isoformat(),
-                        'latitude': getattr(report, 'lat', 0.0),  # Latitude
-                        'longitude': getattr(report, 'lon', 0.0),  # Longitude
-                        'altitude': getattr(report, 'alt', 0.0),  # Altitude
-                        'speed': getattr(report, 'speed', 0.0),  # Vitesse
-                        'fix': True,  # Fix GPS obtenu
-                        'satellites': getattr(report, 'satellites', 0)  # Nombre de satellites
-                    }
-                else:
-                    raise Exception("Pas de fix GPS")
+            # Essayer d'obtenir la localisation via IP
+            # Utiliser une API de géolocalisation IP gratuite
+            import requests
             
-            logger.info(f"📍 GPS: {data['latitude']:.6f}, {data['longitude']:.6f}")
-            return data
+            try:
+                # Utiliser l'API ipinfo.io (gratuit, sans clé pour usage limité)
+                response = requests.get('https://ipinfo.io/json', timeout=5)
+                
+                if response.status_code == 200:
+                    ip_data = response.json()
+                    
+                    # Extraire la localisation (format: "lat,lon")
+                    loc = ip_data.get('loc', '')
+                    if loc:
+                        lat_str, lon_str = loc.split(',')
+                        latitude = float(lat_str)
+                        longitude = float(lon_str)
+                        
+                        data = {
+                            'sensor': 'Device Location',
+                            'timestamp': datetime.now().isoformat(),
+                            'latitude': latitude,
+                            'longitude': longitude,
+                            'altitude': 0,
+                            'fix': True,
+                            'satellites': 0
+                        }
+                        logger.info(f"📍 Localisation IP: {latitude:.6f}, {longitude:.6f}")
+                        return data
+            except Exception as e:
+                logger.warning(f"⚠ Erreur géolocalisation IP: {e}")
+            
+            # En cas d'échec, retourner None pour les coordonnées
+            # L'interface web peut utiliser la géolocalisation du navigateur
+            logger.info("📍 Localisation non disponible (sera obtenue via navigateur)")
+            return {
+                'sensor': 'Device Location',
+                'timestamp': datetime.now().isoformat(),
+                'latitude': None,
+                'longitude': None,
+                'fix': False
+            }
+            
         except Exception as e:
-            logger.error(f"✗ Erreur lecture GPS: {e}")
+            logger.error(f"✗ Erreur lecture localisation: {e}")
             # Retourner des données par défaut avec fix=False
             return {
-                'sensor': 'GPS NEO-6M',
+                'sensor': 'Device Location',
                 'timestamp': datetime.now().isoformat(),
                 'latitude': None,
                 'longitude': None,
@@ -778,8 +694,7 @@ class SensorManager:
         """
         logger.info("🧹 Nettoyage des ressources...")
         
-        if RPI_AVAILABLE:
-            GPIO.cleanup()  # Libérer toutes les broches GPIO
+        GPIO.cleanup()  # Libérer toutes les broches GPIO
         
         self.dht11.cleanup()  # Libérer les ressources du DHT11
         

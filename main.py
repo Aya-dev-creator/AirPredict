@@ -34,7 +34,7 @@ from database import AirQualityDatabase  # Gestion de la base de données SQLite
 from sensors2 import SensorManager  # Gestion des capteurs (MQ-135, DHT11, GPS)
 from ml_model import AirQualityPredictor, generate_synthetic_training_data  # Modèle ML de prédiction
 # from iot_cloud import IoTCloudManager  # Gestion MQTT pour le cloud IoT (désactivé)
-from alert_system import AlertSystem  # Système d'alertes par email et MQTT
+# from alert_system import AlertSystem  # Système d'alertes par email et MQTT (désactivé)
 
 # ============= IMPORT DU SERVEUR WEB (OPTIONNEL) =============
 # Le serveur web est optionnel car il nécessite des dépendances supplémentaires
@@ -150,12 +150,10 @@ class AirQualitySystem:
             # self.iot = IoTCloudManager(...)  # Non utilisé dans cette version
             self.iot = None
             
-            # ---------- 5. SYSTÈME D'ALERTES ----------
-            # Le système d'alertes envoie des notifications par email et MQTT
-            # quand la qualité de l'air dépasse les seuils configurés
-            logger.info("⚠️ Initialisation système d'alertes...")
-            self.alert_system = AlertSystem(db_manager=self.db, iot_manager=self.iot)
-            logger.info("✓ Système d'alertes prêt")
+            # ---------- 5. SYSTÈME D'ALERTES (DÉSACTIVÉ) ----------
+            # Le système d'alertes par email et MQTT est désactivé
+            # self.alert_system = AlertSystem(db_manager=self.db, iot_manager=self.iot)
+            self.alert_system = None
             
             logger.info("="*60)
             logger.info("✓ TOUS LES COMPOSANTS SONT INITIALISÉS")
@@ -235,18 +233,11 @@ class AirQualitySystem:
             if WEB_SERVER_AVAILABLE:
                 logger.debug("✓ Données prêtes pour interface web (SSR)")
             
-            # ============= 6. VÉRIFICATION DES SEUILS D'ALERTE =============
-            # Vérifier si la qualité de l'air dépasse les seuils configurés
-            # Si oui, déclencher des alertes par email et MQTT
-            alerts = self.alert_system.check_air_quality(
-                air_quality_value=air_quality,
-                location={'latitude': latitude, 'longitude': longitude}
-            )
-            
-            if alerts:
-                logger.warning(f"⚠️ {len(alerts)} alerte(s) déclenchée(s)")
-                if WEB_SERVER_AVAILABLE:
-                    logger.warning("⚠️ Alerte générée (SSR)")
+            # ============= 6. VÉRIFICATION DES SEUILS D'ALERTE (DÉSACTIVÉ) =============
+            # La vérification des seuils d'alerte est désactivée
+            # alerts = self.alert_system.check_air_quality(...)
+            # if alerts:
+            #     logger.warning(f"⚠️ {len(alerts)} alerte(s) déclenchée(s)")
             
             logger.info("="*60)
             logger.info("✓ CYCLE TERMINÉ\n")
@@ -301,9 +292,8 @@ class AirQualitySystem:
             
             if peaks:
                 logger.warning(f"⚠️ {len(peaks)} pic(s) de pollution prévu(s)")
-                # Créer des alertes pour les pics prévus
-                alerts = self.alert_system.check_predictions(predictions)
-                pass  # Les alertes sont gérées par le système d'alertes
+                # Les alertes pour les pics sont désactivées
+                # alerts = self.alert_system.check_predictions(predictions)
             else:
                 logger.info("✓ Aucun pic de pollution prévu")
             
@@ -333,35 +323,12 @@ class AirQualitySystem:
     
     def send_daily_summary(self):
         """
-        Envoie un résumé quotidien par email
+        Envoie un résumé quotidien par email (DÉSACTIVÉ)
         
-        Cette méthode est appelée tous les jours à 8h du matin.
-        Elle génère un résumé des statistiques des dernières 24 heures
-        et l'envoie par email à l'adresse configurée.
-        
-        Le résumé inclut:
-        - Qualité de l'air moyenne
-        - Température moyenne
-        - Humidité moyenne
-        - Nombre d'alertes déclenchées
-        
-        Cette méthode est planifiée par schedule.every().day.at("08:00").do()
+        Cette méthode est désactivée car les alertes par email sont désactivées.
         """
-        try:
-            logger.info("📧 Génération du résumé quotidien...")
-            
-            # Récupérer les statistiques des dernières 24 heures
-            statistics = self.db.get_statistics(hours=24)
-            
-            if statistics:
-                # Envoyer le résumé par email via le système d'alertes
-                self.alert_system.send_daily_summary(statistics)
-                logger.info("✓ Résumé quotidien envoyé")
-            else:
-                logger.warning("⚠ Pas de données pour le résumé")
-                
-        except Exception as e:
-            logger.error(f"✗ Erreur envoi résumé: {e}")
+        # Désactivé - les alertes par email sont supprimées
+        pass
     
     def schedule_tasks(self):
         """
@@ -394,17 +361,15 @@ class AirQualitySystem:
         schedule.every().hour.do(self.make_predictions)
         logger.info("  ✓ Prédictions ML: toutes les heures")
         
-        # ============= 3. NETTOYAGE DES ALERTES =============
-        # Nettoyage des anciennes alertes toutes les 6 heures
-        # Supprime les alertes résolues pour éviter d'encombrer la base de données
-        schedule.every(6).hours.do(lambda: self.alert_system.clear_old_alerts())
-        logger.info("  ✓ Nettoyage alertes: toutes les 6h")
+        # ============= 3. NETTOYAGE DES ALERTES (DÉSACTIVÉ) =============
+        # Le nettoyage des alertes est désactivé car les alertes sont supprimées
+        # schedule.every(6).hours.do(lambda: self.alert_system.clear_old_alerts())
+        # logger.info("  ✓ Nettoyage alertes: toutes les 6h")
         
-        # ============= 4. RÉSUMÉ QUOTIDIEN =============
-        # Envoi d'un résumé quotidien par email tous les jours à 8h00
-        # Le résumé contient les statistiques des dernières 24 heures
-        schedule.every().day.at("08:00").do(self.send_daily_summary)
-        logger.info("  ✓ Résumé quotidien: 8h00")
+        # ============= 4. RÉSUMÉ QUOTIDIEN (DÉSACTIVÉ) =============
+        # Le résumé quotidien par email est désactivé
+        # schedule.every().day.at("08:00").do(self.send_daily_summary)
+        # logger.info("  ✓ Résumé quotidien: 8h00")
     
     def start_web_server(self):
         """
