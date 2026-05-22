@@ -33,6 +33,7 @@ import logging  # Module pour la journalisation (logs) du système
 
 # ============= IMPORTS POUR LA GÉOLOCALISATION =============
 import requests  # Bibliothèque pour les requêtes HTTP (géolocalisation IP)
+from config import config
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +43,6 @@ logger = logging.getLogger(__name__)
 # Ces imports sont requis uniquement sur un Raspberry Pi réel
 # Sur Windows ou un environnement de développement, ils sont ignorés
 IS_RPI = platform.system() == "Linux" and platform.machine().lower().startswith(("arm", "aarch64"))
-
 board = None
 busio = None
 adafruit_dht = None
@@ -66,56 +66,7 @@ if IS_RPI:
 else:
     logger.warning("Raspberry Pi hardware libraries are unavailable on this platform. Sensor hardware will run in fallback mode.")
 
-class MQ135Sensor:
-    """
-    Classe pour gérer le capteur MQ-135 (qualité de l'air)
-    
-    Le capteur MQ-135 est un capteur de qualité de l'air qui détecte:
-    - CO2 (dioxyde de carbone)
-    - Fumée
-    - Gaz combustibles (méthane, propane, butane, etc.)
-    - Alcool
-    - Ammoniac
-    
-    Fonctionnement:
-    - Le capteur a une résistance interne (Rs) qui varie en fonction de la concentration de gaz
-    - La résistance est mesurée via un ADC (ADS1115) sur le bus I2C
-    - La valeur analogique est convertie en PPM (parts per million)
-    - Le capteur fournit également une sortie digitale DOUT pour les alertes de seuil
-    
-    Calibration:
-    - Le capteur doit être calibré dans un environnement d'air propre
-    - La calibration détermine R0 (résistance dans l'air propre)
-    - R0 est utilisé pour calculer le ratio Rs/R0 et convertir en PPM
-    
-    Utilise l'ADS1115 pour la lecture analogique (convertisseur analogique-numérique 16-bit)
-    """
-    
-    def __init__(self, digital_pin=17, adc_channel=0, pin=None):
-        """
-        Initialise le capteur MQ-135
-        
-        Cette méthode configure le capteur MQ-135 en:
-        1. Initialisant l'ADC ADS1115 sur le bus I2C
-        2. Configurant le canal ADC spécifié
-        3. Configurant la broche GPIO pour la sortie digitale DOUT (optionnel)
-        4. Définissant la résistance de calibration R0 (par défaut: 10.0 kΩ)
-        
-        Args:
-            digital_pin (int): Pin GPIO pour sortie digitale DOUT (par défaut: GPIO 17)
-                              La sortie DOUT passe à LOW quand le seuil de gaz est dépassé
-            adc_channel (int): Canal ADC de l'ADS1115 (0-3, par défaut: 0)
-                              L'ADS1115 a 4 canaux analogiques (A0, A1, A2, A3)
-            pin (int): Paramètre de compatibilité avec l'ancienne signature
-                      Si fourni, remplace digital_pin (pour compatibilité)
-        """
-        # Compatibilité avec l'ancienne signature MQ135Sensor(pin=17)
-        if pin is not None:
-            digital_pin = pin
-
-        self.digital_pin = digital_pin  # Broche GPIO pour DOUT
-        self.adc_channel = adc_channel  # Canal ADC (0-3)
-        self.r0 = 10.0  # Résistance de calibration R0 (en kΩ)
+logger.info(f"Platform detection: system={platform.system()}, machine={platform.machine()}, IS_RPI={IS_RPI}, HARDWARE_AVAILABLE={HARDWARE_AVAILABLE}")
         self.ads = None  # Instance de l'ADC ADS1115
         self.adc_channel_obj = None  # Objet du canal ADC
         self.available = HARDWARE_AVAILABLE  # Indique si le hardware Raspberry Pi est disponible
@@ -172,10 +123,13 @@ class MQ135Sensor:
                     
             if self.adc_channel_obj is None:
                 logger.error("Impossible d'initialiser l'ADS1115 après plusieurs tentatives")
+                self.available = False
+                return
                 
         except Exception as e:
             logger.error(f"✗ Erreur initialisation ADS1115/I2C: {e}")
-            raise  # Propager l'erreur car le capteur est requis
+            self.available = False
+            return  # Basculer en mode simulation si l'ADS1115 ne peut pas être initialisé
             
         # ============= INITIALISATION DU PIN DIGITAL DOUT =============
         # La sortie DOUT passe à LOW quand le seuil de gaz est dépassé
@@ -186,7 +140,8 @@ class MQ135Sensor:
             logger.info(f"✓ Capteur MQ-135 DOUT initialisé sur GPIO {self.digital_pin}")
         except Exception as e:
             logger.error(f"Erreur initialisation GPIO: {e}")
-            raise  # Propager l'erreur car le GPIO est requis
+            self.available = False
+            return  # Basculer en mode simulation si le GPIO ne peut pas être initialisé
     
     def read_analog_value(self):
         """
@@ -200,6 +155,10 @@ class MQ135Sensor:
             int: Valeur analogique (0-26400 pour ADS1115 16-bit)
                   Retourne 0 en cas d'erreur
         """
+        if self.adc_channel_obj is None:
+            logger.error("ADS1115 channel object unavailable; cannot read analog value.")
+            return 0
+
         try:
             # Lire la valeur brute de l'ADS1115
             value = self.adc_channel_obj.value  # Valeur brute (0-26400)
@@ -453,8 +412,14 @@ class DHT11Sensor:
             pin_board = pin
         
         # Initialiser le capteur DHT11 avec la bibliothèque adafruit_dht
-        self.sensor = adafruit_dht.DHT11(pin_board)
-        logger.info(f"✓ Capteur DHT11 initialisé sur GPIO {self.pin}")
+        try:
+            self.sensor = adafruit_dht.DHT11(pin_board)
+            logger.info(f"✓ Capteur DHT11 initialisé sur GPIO {self.pin}")
+        except Exception as e:
+            logger.error(f"Erreur initialisation DHT11: {e}")
+            self.available = False
+            self.sensor = None
+            logger.warning("DHT11 hardware unavailable; lecture en mode simulation.")
     
     def read(self):
         """
@@ -687,6 +652,7 @@ class SensorManager:
                              Le GPS peut être désactivé si non utilisé
         """
         logger.info("🚀 Initialisation du système de capteurs...")
+        logger.info(f"SensorManager config: mq135_pin={mq135_pin}, dht11_pin={dht11_pin}, gps_enabled={gps_enabled}, HARDWARE_AVAILABLE={HARDWARE_AVAILABLE}")
         
         # Initialiser chaque capteur
         self.mq135 = MQ135Sensor(mq135_pin)  # Capteur de qualité de l'air

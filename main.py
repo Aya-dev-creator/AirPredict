@@ -40,10 +40,12 @@ from ml_model import AirQualityPredictor, generate_synthetic_training_data  # Mo
 # Le serveur web est optionnel car il nécessite des dépendances supplémentaires
 # Si l'import échoue, le système fonctionne quand même mais sans interface web
 try:
-    from web_server import app, initialize_server  # Application Flask et fonction d'initialisation
+    from web_server import app, initialize_server, get_weather_data  # Application Flask et fonction d'initialisation
     WEB_SERVER_AVAILABLE = True  # Flag indiquant que le serveur web est disponible
+    WEATHER_API_AVAILABLE = True
 except ImportError:
     WEB_SERVER_AVAILABLE = False  # Flag indiquant que le serveur web n'est pas disponible
+    WEATHER_API_AVAILABLE = False
     logger = logging.getLogger(__name__)
     logger.warning("⚠ Module web_server non disponible - Interface web désactivée")
 
@@ -204,10 +206,31 @@ class AirQualitySystem:
             logger.info(f"Humidité: {humidity}%")
             if latitude and longitude:
                 logger.info(f"Position: {latitude:.6f}, {longitude:.6f}")
+
+            # ============= 2.5. FALLBACK MÉTÉO SI LES CAPTEURS DHT11 SONT INDISPONIBLES =============
+            if (temperature is None or humidity is None) and WEATHER_API_AVAILABLE:
+                logger.warning("Données DHT11 indisponibles, utilisation de l'API météo comme secours")
+                try:
+                    weather_data = get_weather_data()
+                    if weather_data:
+                        temperature = temperature if temperature is not None else weather_data.get('temperature')
+                        humidity = humidity if humidity is not None else weather_data.get('humidity')
+                        latitude = latitude if latitude is not None else weather_data.get('latitude')
+                        longitude = longitude if longitude is not None else weather_data.get('longitude')
+                        logger.info(f"Fallback météo: Température {temperature}°C, Humidité {humidity}%")
+                        if latitude is not None and longitude is not None:
+                            logger.info(f"Fallback météo position: {latitude:.6f}, {longitude:.6f}")
+                    else:
+                        logger.warning("Aucune donnée météo disponible pour le fallback")
+                except Exception as e:
+                    logger.error(f"Erreur récupération météo de secours: {e}")
             
             # ============= 3. ENREGISTREMENT EN BASE DE DONNÉES =============
             # Insérer les données dans la table sensor_data
             # La base de données stocke toutes les lectures pour l'historique
+            if temperature is None or humidity is None:
+                logger.error("Température ou humidité manquante après fallback; données capteurs non enregistrées")
+                return
             record_id = self.db.insert_sensor_data(
                 air_quality=air_quality,
                 temperature=temperature,
