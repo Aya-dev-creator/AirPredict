@@ -32,34 +32,19 @@ class Config:
         'db_path': os.getenv('DB_PATH', './data/air_quality.db')
     }
     
-    # ============= CONFIGURATION DES CAPTEURS (GPIO) =============
-    # Ces paramètres définissent comment les capteurs sont connectés au Raspberry Pi
-    # GPIO = General Purpose Input/Output (broches d'entrée/sortie)
-    SENSOR_CONFIG = {
-        # Numéro de la broche GPIO pour le capteur DHT11 (température/humidité)
-        # Par défaut: GPIO 4 (broche physique 7 sur Raspberry Pi)
-        'dht11_pin': int(os.getenv('DHT11_PIN', 4)),
-        
-        # Numéro de la broche GPIO pour le capteur MQ-135 (qualité de l'air)
-        # Note: MQ-135 utilise un ADC (convertisseur analogique-numérique) comme ADS1115
-        # Par défaut: GPIO 17 (broche physique 11)
-        'mq135_pin': int(os.getenv('MQ135_PIN', 17)),
-        
-        # Active ou désactive le module GPS NEO-6M
-        # 'true' = GPS activé, 'false' = GPS désactivé
-        # Utile pour économiser de l'énergie si le GPS n'est pas connecté
-        'gps_enabled': os.getenv('GPS_ENABLED', 'true').lower() == 'true',
-        
-        # Intervalle de lecture des capteurs en secondes
-        # Combien de temps attendre entre deux lectures de tous les capteurs
-        # Par défaut: 60 secondes (1 minute)
-        'read_interval': int(os.getenv('SENSOR_READ_INTERVAL', 60))
+    # ============= CONFIGURATION OPENWEATHER (collecte périodique) =============
+    WEATHER_DATA_CONFIG = {
+        # Intervalle entre deux récupérations API (secondes)
+        'read_interval': int(os.getenv(
+            'WEATHER_FETCH_INTERVAL',
+            os.getenv('SENSOR_READ_INTERVAL', 60),
+        )),
     }
     
     # ============= SEUILS DE QUALITÉ DE L'AIR =============
     # Ces seuils définissent les niveaux de qualité de l'air basés sur l'AQI (Air Quality Index)
     # L'AQI est une échelle internationale pour mesurer la pollution atmosphérique
-    # Valeurs en PPM (parts per million) pour le capteur MQ-135
+    # Valeurs en PPM (parts per million), dérivées de l'AQI OpenWeather
     AIR_QUALITY_THRESHOLDS = {
         # Seuil pour qualité "Bon" (0-50 PPM)
         # Air satisfaisant, pollution faible ou nulle
@@ -141,14 +126,10 @@ class Config:
     MAP_CENTER_LAT = float(os.getenv('MAP_CENTER_LAT', '33.5731'))
     MAP_CENTER_LON = float(os.getenv('MAP_CENTER_LON', '-7.5898'))
     
-    # Si 'true', la carte est toujours centrée sur le GPS du capteur
-    # Même si le GPS est loin de la ville configurée (utile pour les capteurs mobiles)
-    # 'false' = centre sur la ville configurée, utilise GPS seulement s'il est proche
+    # Si 'true', la carte suit les coordonnées des dernières mesures enregistrées
     MAP_FOLLOW_GPS = os.getenv('MAP_FOLLOW_GPS', 'false').lower() in ('1', 'true', 'yes')
     
-    # Distance maximale (en km) entre le GPS du capteur et le centre de la ville
-    # Si le GPS est plus loin que cette distance, il est ignoré (évite les faux fixes GPS)
-    # Par exemple: si le capteur est à Casablanca mais le GPS indique Tunis (320 km), on ignore le GPS
+    # Distance maximale (en km) entre la position mesurée et le centre de la ville
     MAP_GPS_MAX_DISTANCE_KM = float(os.getenv('MAP_GPS_MAX_DISTANCE_KM', '320'))
 
     # ============= PARAMÈTRES DU MODÈLE ML =============
@@ -195,7 +176,7 @@ class Config:
         Détermine le niveau de qualité de l'air basé sur la valeur mesurée
         
         Args:
-            value (float): Valeur mesurée par le capteur MQ-135 (PPM)
+            value (float): Indice qualité de l'air (PPM, dérivé de l'AQI)
         
         Returns:
             dict: Niveau, couleur et description de la qualité

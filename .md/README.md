@@ -1,6 +1,6 @@
 # AirWatch - Système de Surveillance de la Qualité de l'Air (PFE)
 
-Application web **100% Server-Side Rendered (SSR)** conçue pour la surveillance de la qualité de l'air en temps réel, optimisée pour un déploiement sur Raspberry Pi 4.
+Application web **100% Server-Side Rendered (SSR)** conçue pour la surveillance de la qualité de l'air en temps réel, optimisée pour un déploiement léger (Raspberry Pi ou serveur).
 
 ## 🚀 Architecture "Zero-JS" (No JavaScript)
 Pour garantir une stabilité maximale et une consommation de ressources minimale sur Raspberry Pi, le projet a été entièrement refactorisé pour fonctionner **sans aucun script JavaScript côté client**.
@@ -69,7 +69,7 @@ python web_server.py
 - `web_server.py` : Cœur de l'application (Flask).
 - `database.py` : Gestion de la base de données SQLite.
 - `ml_model.py` : Modèle de prédiction Intelligence Artificielle.
-- `sensors.py` : Driver consolidé pour les capteurs physiques (DHT11, MQ-135, GPS).
+- `openweather_data_provider.py` : Récupération météo et qualité de l'air (OpenWeatherMap).
 - `templates/` : Pages HTML (SSR avec Jinja2).
 - `static/css/` : Design et thèmes (Sans JS).
 

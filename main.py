@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Système Principal de Surveillance et Prédiction de la Qualité de l'Air
-Projet PFE - Raspberry Pi 4 + IoT + Machine Learning
+Projet PFE - OpenWeather API + Machine Learning
 
 Ce script est le point d'entrée principal du système. Il orchestre tous les composants:
 - Récupération des données depuis l'API OpenWeatherMap (qualité de l'air + météo)
@@ -31,7 +31,7 @@ from datetime import datetime  # Module pour manipuler les dates et heures
 # ============= IMPORTS DES MODULES DU PROJET =============
 from config import config  # Configuration centrale (variables d'environnement, seuils, etc.)
 from database import AirQualityDatabase  # Gestion de la base de données SQLite3
-from openweather_data_provider import SensorManager, HARDWARE_AVAILABLE  # Fournisseur de données OpenWeather (remplace sensors.py)
+from openweather_data_provider import OpenWeatherDataProvider
 from ml_model import AirQualityPredictor, generate_synthetic_training_data  # Modèle ML de prédiction
 # from iot_cloud import IoTCloudManager  # Gestion MQTT pour le cloud IoT (désactivé)
 # from alert_system import AlertSystem  # Système d'alertes par email et MQTT (désactivé)
@@ -40,12 +40,10 @@ from ml_model import AirQualityPredictor, generate_synthetic_training_data  # Mo
 # Le serveur web est optionnel car il nécessite des dépendances supplémentaires
 # Si l'import échoue, le système fonctionne quand même mais sans interface web
 try:
-    from web_server import app, initialize_server, get_weather_data  # Application Flask et fonction d'initialisation
-    WEB_SERVER_AVAILABLE = True  # Flag indiquant que le serveur web est disponible
-    WEATHER_API_AVAILABLE = True
+    from web_server import app, initialize_server
+    WEB_SERVER_AVAILABLE = True
 except ImportError:
-    WEB_SERVER_AVAILABLE = False  # Flag indiquant que le serveur web n'est pas disponible
-    WEATHER_API_AVAILABLE = False
+    WEB_SERVER_AVAILABLE = False
     logger = logging.getLogger(__name__)
     logger.warning("Module web_server non disponible - Interface web désactivée")
 
@@ -69,14 +67,14 @@ class AirQualitySystem:
     
     Cette classe est le cœur du système. Elle initialise et coordonne tous les composants:
     - Base de données pour le stockage
-    - Capteurs pour la collecte de données
+    - OpenWeather API pour la collecte de données
     - Modèle ML pour les prédictions
     - Système d'alertes pour les notifications
     - Serveur web pour l'interface utilisateur
     
     Méthodes principales:
     - __init__: Initialisation de tous les composants
-    - read_and_process_sensors: Lecture et traitement des données capteurs
+    - read_and_process_weather: Lecture et traitement des données OpenWeather
     - make_predictions: Génération des prédictions ML
     - schedule_tasks: Configuration des tâches planifiées
     - start_web_server: Démarrage du serveur web
@@ -90,7 +88,7 @@ class AirQualitySystem:
         
         Cette méthode est appelée au démarrage du système. Elle:
         1. Initialise la base de données SQLite3
-        2. Configure les capteurs (MQ-135, DHT11, GPS)
+        2. Configure le fournisseur OpenWeather
         3. Charge ou entraîne le modèle ML
         4. Initialise le système d'alertes
         5. Prépare le serveur web
@@ -98,9 +96,6 @@ class AirQualitySystem:
         Si une erreur survient lors de l'initialisation, le programme s'arrête.
         """
         logger.info("DÉMARRAGE DU SYSTÈME DE SURVEILLANCE DE QUALITÉ DE L'AIR")
-        if not HARDWARE_AVAILABLE:
-            logger.warning("Raspberry Pi sensor hardware unavailable. Sensor readings will run in fallback mode.")
-        
         # ============= VARIABLES DE CONTRÔLE =============
         self.running = False  # Flag indiquant si le système est en cours d'exécution
         self.web_server_thread = None  # Thread pour le serveur web (exécution parallèle)
@@ -120,13 +115,9 @@ class AirQualitySystem:
                 logger.error("Échec connexion base de données")
             
             # ---------- 2. SOURCE DE DONNÉES (OPENWEATHER API) ----------
-            # Les données de qualité de l'air et météorologiques proviennent de l'API OpenWeatherMap
-            # Cela élimine la dépendance aux capteurs physiques (MQ-135, DHT11, GPS)
             logger.info("Initialisation de la source de données OpenWeatherMap...")
-            self.sensors = SensorManager(
-                lat=None,  # Sera résolu via l'API ou config
-                lon=None,
-                city=config.WEATHER_DEFAULT_QUERY.split(',')[0]
+            self.weather_provider = OpenWeatherDataProvider(
+                city=config.WEATHER_DEFAULT_QUERY,
             )
             logger.info("Source de données OpenWeatherMap prête")
             
@@ -161,73 +152,36 @@ class AirQualitySystem:
             logger.error(f"Erreur lors de l'initialisation: {e}")
             raise  # Propager l'erreur pour arrêter le programme
     
-    def read_and_process_sensors(self):
+    def read_and_process_weather(self):
         """
-        Récupère les données OpenWeatherMap et les traite
-        
-        Cette méthode est appelée périodiquement (toutes les X secondes configurées dans .env).
-        Elle effectue les opérations suivantes:
-        1. Récupération des données depuis l'API OpenWeatherMap (qualité de l'air + météo)
-        2. Extraction des données mesurées
-        3. Enregistrement dans la base de données
-        4. Vérification des seuils d'alerte
-        5. Déclenchement des alertes si nécessaire
-        
-        Cette méthode est planifiée par schedule.every().seconds.do()
+        Récupère les données OpenWeatherMap et les enregistre en base.
+        Planifiée via schedule.every().seconds.do().
         """
         try:
-            logger.info("CYCLE DE LECTURE DES DONNÉES")
-            
-            # ============= 1. RÉCUPÉRATION DES DONNÉES =============
-            # Le SensorManager récupère les données depuis l'API OpenWeatherMap
-            # Retourne un dictionnaire avec les données météo et qualité de l'air
-            sensor_data = self.sensors.read_all_sensors()
-            
-            if not sensor_data:
-                logger.error("Échec lecture capteurs")
-                return  # Arrêter si la lecture a échoué
-            
-            # ============= 2. EXTRACTION DES DONNÉES =============
-            # Extraire les valeurs individuelles du dictionnaire
-            air_quality = sensor_data['air_quality']['ppm']  # Qualité de l'air en PPM
-            temperature = sensor_data['temperature']  # Température en °C
-            humidity = sensor_data['humidity']  # Humidité en %
-            location = sensor_data.get('location')  # Coordonnées GPS (optionnel)
-            
-            # Extraire latitude et longitude si disponibles
+            logger.info("CYCLE DE RÉCUPÉRATION OPENWEATHER")
+
+            weather_snapshot = self.weather_provider.fetch()
+
+            if not weather_snapshot:
+                logger.error("Échec récupération OpenWeather")
+                return
+
+            air_quality = weather_snapshot['air_quality']['ppm']
+            temperature = weather_snapshot['temperature']
+            humidity = weather_snapshot['humidity']
+            location = weather_snapshot.get('location')
+
             latitude = location['latitude'] if location else None
             longitude = location['longitude'] if location else None
-            
-            # Afficher les données lues dans les logs
+
             logger.info(f"Qualité air: {air_quality:.2f} PPM")
             logger.info(f"Température: {temperature}°C")
             logger.info(f"Humidité: {humidity}%")
             if latitude and longitude:
                 logger.info(f"Position: {latitude:.6f}, {longitude:.6f}")
 
-            # ============= 2.5. FALLBACK MÉTÉO SI LES CAPTEURS DHT11 SONT INDISPONIBLES =============
-            if (temperature is None or humidity is None) and WEATHER_API_AVAILABLE:
-                logger.warning("Données DHT11 indisponibles, utilisation de l'API météo comme secours")
-                try:
-                    weather_data = get_weather_data()
-                    if weather_data:
-                        temperature = temperature if temperature is not None else weather_data.get('temperature')
-                        humidity = humidity if humidity is not None else weather_data.get('humidity')
-                        latitude = latitude if latitude is not None else weather_data.get('latitude')
-                        longitude = longitude if longitude is not None else weather_data.get('longitude')
-                        logger.info(f"Fallback météo: Température {temperature}°C, Humidité {humidity}%")
-                        if latitude is not None and longitude is not None:
-                            logger.info(f"Fallback météo position: {latitude:.6f}, {longitude:.6f}")
-                    else:
-                        logger.warning("Aucune donnée météo disponible pour le fallback")
-                except Exception as e:
-                    logger.error(f"Erreur récupération météo de secours: {e}")
-            
-            # ============= 3. ENREGISTREMENT EN BASE DE DONNÉES =============
-            # Insérer les données dans la table sensor_data
-            # La base de données stocke toutes les lectures pour l'historique
             if temperature is None or humidity is None:
-                logger.error("Température ou humidité manquante après fallback; données capteurs non enregistrées")
+                logger.error("Température ou humidité manquante; données non enregistrées")
                 return
             record_id = self.db.insert_sensor_data(
                 air_quality=air_quality,
@@ -259,7 +213,7 @@ class AirQualitySystem:
             logger.info("CYCLE TERMINÉ\n")
             
         except Exception as e:
-            logger.error(f"Erreur traitement capteurs: {e}")
+            logger.error(f"Erreur traitement OpenWeather: {e}")
     
     def make_predictions(self):
         """
@@ -279,7 +233,7 @@ class AirQualitySystem:
             logger.info("GÉNÉRATION DES PRÉDICTIONS ML")
             
             # ============= 1. RÉCUPÉRATION DES DERNIÈRES DONNÉES =============
-            # Récupérer la lecture la plus récente des capteurs
+            # Récupérer la lecture la plus récente
             # Ces données servent de point de départ pour les prédictions
             latest_readings = self.db.get_latest_readings(limit=1)
             
@@ -352,7 +306,7 @@ class AirQualitySystem:
         automatiquement à intervalles réguliers.
         
         Tâches configurées:
-        1. Lecture des capteurs: toutes les X secondes (configuré dans .env)
+        1. Récupération OpenWeather: toutes les X secondes (configuré dans .env)
         2. Prédictions ML: toutes les heures
         3. Nettoyage des alertes: toutes les 6 heures
         4. Résumé quotidien: tous les jours à 8h00
@@ -361,12 +315,10 @@ class AirQualitySystem:
         """
         logger.info("Configuration des tâches planifiées...")
         
-        # ============= 1. LECTURE DES CAPTEURS =============
-        # Lecture des capteurs toutes les X secondes (configuré dans .env)
-        # Par défaut: toutes les 60 secondes (1 minute)
-        interval = config.SENSOR_CONFIG['read_interval']
-        schedule.every(interval).seconds.do(self.read_and_process_sensors)
-        logger.info(f"  Lecture capteurs: toutes les {interval}s")
+        # ============= 1. RÉCUPÉRATION OPENWEATHER =============
+        interval = config.WEATHER_DATA_CONFIG['read_interval']
+        schedule.every(interval).seconds.do(self.read_and_process_weather)
+        logger.info(f"  Récupération OpenWeather: toutes les {interval}s")
         
         # ============= 2. PRÉDICTIONS ML =============
         # Génération des prédictions ML toutes les heures
@@ -466,18 +418,15 @@ class AirQualitySystem:
         self.running = True  # Activer le flag de fonctionnement
         
         # ============= 1. CONFIGURATION DES TÂCHES PLANIFIÉES =============
-        # Configurer toutes les tâches périodiques (lecture capteurs, prédictions, etc.)
+        # Configurer toutes les tâches périodiques (OpenWeather, prédictions, etc.)
         self.schedule_tasks()
         
         # ============= 2. DÉMARRAGE DU SERVEUR WEB =============
         # Démarrer le serveur web dans un thread séparé
         self.start_web_server()
         
-        # ============= 3. PREMIÈRE LECTURE DES CAPTEURS =============
-        # Effectuer une lecture immédiate des capteurs au démarrage
-        # Cela permet d'avoir des données dès le début
-        logger.info("Lecture initiale des capteurs...")
-        self.read_and_process_sensors()
+        logger.info("Récupération initiale OpenWeather...")
+        self.read_and_process_weather()
         
         # ============= 4. PRÉDICTIONS INITIALES =============
         # Effectuer des prédictions initiales au démarrage
@@ -509,7 +458,7 @@ class AirQualitySystem:
         
         Opérations de nettoyage:
         1. Désactiver le flag de fonctionnement
-        2. Nettoyer les capteurs (libérer les broches GPIO)
+        2. Arrêter le fournisseur OpenWeather
         3. Déconnecter le cloud IoT (si activé)
         4. Fermer la base de données
         """
@@ -520,10 +469,9 @@ class AirQualitySystem:
         # ============= NETTOYAGE DES RESSOURCES =============
         logger.info("Nettoyage des ressources...")
         
-        # Nettoyer les capteurs (libérer les broches GPIO)
-        if self.sensors:
-            self.sensors.cleanup()  # Libérer les ressources GPIO
-            logger.info("Capteurs nettoyés")
+        if self.weather_provider:
+            self.weather_provider.cleanup()
+            logger.info("Fournisseur OpenWeather arrêté")
         
         # Déconnecter le cloud IoT (si activé)
         # if self.iot:
@@ -582,7 +530,7 @@ if __name__ == "__main__":
     try:
         # ============= 2. CRÉATION ET DÉMARRAGE DU SYSTÈME =============
         # Créer une instance de la classe AirQualitySystem
-        # Cela initialise tous les composants (DB, capteurs, ML, alertes, web)
+        # Cela initialise tous les composants (DB, OpenWeather, ML, alertes, web)
         system = AirQualitySystem()
         
         # Lancer la boucle principale du système

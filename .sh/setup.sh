@@ -20,7 +20,7 @@ if [ -f /proc/device-tree/model ]; then
     PI_MODEL=$(cat /proc/device-tree/model)
     echo -e "${GREEN}✓${NC} Detected: $PI_MODEL"
 else
-    echo -e "${YELLOW}⚠${NC}  Not running on Raspberry Pi - sensor features will be limited"
+    echo -e "${YELLOW}⚠${NC}  Not running on Raspberry Pi (OpenWeather API works on any platform)"
 fi
 
 # Check Python version
