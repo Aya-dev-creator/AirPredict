@@ -4,12 +4,6 @@ python-dotenv==1.0.0
 # Database
 # SQLite3 is built into Python, no need to install
 
-# Raspberry Pi GPIO and Sensors
-RPi.GPIO==0.7.1
-adafruit-circuitpython-dht==4.0.3
-adafruit-blinka==8.20.0
-adafruit-circuitpython-ads1x15
-
 # Web Server
 Flask==3.0.0
 Werkzeug==3.0.1
@@ -23,8 +17,17 @@ joblib==1.3.2
 # Scheduling
 schedule==1.2.0
 
-# HTTP Requests (weather API, news API, NASA API, RSS feeds, IP geolocation)
+# HTTP Requests (weather API, news API, NASA API, RSS feeds, IP geolocation, OpenWeather API)
 requests==2.31.0
 
 # Mistral AI API for Chatbot
-mistralai==0.4.2
+mistralai==2.4.7
+
+# Note: Raspberry Pi GPIO and sensor libraries have been removed
+# This project now uses OpenWeatherMap API instead of physical sensors
+# Removed dependencies:
+# - RPi.GPIO
+# - adafruit-circuitpython-dht
+# - adafruit-blinka
+# - adafruit-circuitpython-ads1x15
+

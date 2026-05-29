@@ -4,7 +4,7 @@ Système Principal de Surveillance et Prédiction de la Qualité de l'Air
 Projet PFE - Raspberry Pi 4 + IoT + Machine Learning
 
 Ce script est le point d'entrée principal du système. Il orchestre tous les composants:
-- Lecture des capteurs (MQ-135 pour la qualité de l'air, DHT11 pour température/humidité, GPS NEO-6M)
+- Récupération des données depuis l'API OpenWeatherMap (qualité de l'air + météo)
 - Stockage des données en base de données SQLite3
 - Prédictions ML avec RandomForest pour anticiper la qualité de l'air
 - Système d'alertes en temps réel stockées en base de données
@@ -12,7 +12,7 @@ Ce script est le point d'entrée principal du système. Il orchestre tous les co
 
 Architecture:
 1. AirQualitySystem: Classe principale qui gère tous les composants
-2. Tâches planifiées: Lecture capteurs, prédictions ML, nettoyage alertes, résumé quotidien
+2. Tâches planifiées: Récupération données API, prédictions ML, nettoyage alertes, résumé quotidien
 3. Thread séparé: Serveur web Flask tourne en parallèle
 4. Gestion propre de l'arrêt: Nettoyage des ressources sur Ctrl+C
 
@@ -31,7 +31,7 @@ from datetime import datetime  # Module pour manipuler les dates et heures
 # ============= IMPORTS DES MODULES DU PROJET =============
 from config import config  # Configuration centrale (variables d'environnement, seuils, etc.)
 from database import AirQualityDatabase  # Gestion de la base de données SQLite3
-from sensors import SensorManager, HARDWARE_AVAILABLE  # Gestion des capteurs (MQ-135, DHT11, GPS)
+from openweather_data_provider import SensorManager, HARDWARE_AVAILABLE  # Fournisseur de données OpenWeather (remplace sensors.py)
 from ml_model import AirQualityPredictor, generate_synthetic_training_data  # Modèle ML de prédiction
 # from iot_cloud import IoTCloudManager  # Gestion MQTT pour le cloud IoT (désactivé)
 # from alert_system import AlertSystem  # Système d'alertes par email et MQTT (désactivé)
@@ -119,18 +119,16 @@ class AirQualitySystem:
             else:
                 logger.error("Échec connexion base de données")
             
-            # ---------- 2. CAPTEURS (MQ-135, DHT11, GPS) ----------
-            # Les capteurs sont connectés aux broches GPIO du Raspberry Pi
-            # MQ-135: Qualité de l'air (via ADC ADS1115)
-            # DHT11: Température et humidité
-            # GPS NEO-6M: Localisation
-            logger.info("Initialisation des capteurs...")
+            # ---------- 2. SOURCE DE DONNÉES (OPENWEATHER API) ----------
+            # Les données de qualité de l'air et météorologiques proviennent de l'API OpenWeatherMap
+            # Cela élimine la dépendance aux capteurs physiques (MQ-135, DHT11, GPS)
+            logger.info("Initialisation de la source de données OpenWeatherMap...")
             self.sensors = SensorManager(
-                mq135_pin=config.SENSOR_CONFIG['mq135_pin'],  # Broche GPIO pour MQ-135
-                dht11_pin=config.SENSOR_CONFIG['dht11_pin'],  # Broche GPIO pour DHT11
-                gps_enabled=config.SENSOR_CONFIG['gps_enabled']  # Activation/désactivation GPS
+                lat=None,  # Sera résolu via l'API ou config
+                lon=None,
+                city=config.WEATHER_DEFAULT_QUERY.split(',')[0]
             )
-            logger.info("Capteurs initialisés")
+            logger.info("Source de données OpenWeatherMap prête")
             
             # ---------- 3. MODÈLE MACHINE LEARNING ----------
             # Le modèle ML utilise RandomForest pour prédire la qualité de l'air
@@ -165,11 +163,11 @@ class AirQualitySystem:
     
     def read_and_process_sensors(self):
         """
-        Lit tous les capteurs et traite les données
+        Récupère les données OpenWeatherMap et les traite
         
         Cette méthode est appelée périodiquement (toutes les X secondes configurées dans .env).
         Elle effectue les opérations suivantes:
-        1. Lecture des capteurs (MQ-135, DHT11, GPS)
+        1. Récupération des données depuis l'API OpenWeatherMap (qualité de l'air + météo)
         2. Extraction des données mesurées
         3. Enregistrement dans la base de données
         4. Vérification des seuils d'alerte
@@ -178,11 +176,11 @@ class AirQualitySystem:
         Cette méthode est planifiée par schedule.every().seconds.do()
         """
         try:
-            logger.info("CYCLE DE LECTURE DES CAPTEURS")
+            logger.info("CYCLE DE LECTURE DES DONNÉES")
             
-            # ============= 1. LECTURE DES CAPTEURS =============
-            # Le SensorManager lit tous les capteurs connectés
-            # Retourne un dictionnaire avec les données de chaque capteur
+            # ============= 1. RÉCUPÉRATION DES DONNÉES =============
+            # Le SensorManager récupère les données depuis l'API OpenWeatherMap
+            # Retourne un dictionnaire avec les données météo et qualité de l'air
             sensor_data = self.sensors.read_all_sensors()
             
             if not sensor_data:
