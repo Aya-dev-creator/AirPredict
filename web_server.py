@@ -2204,6 +2204,47 @@ def entreprise_assistant():
     )
 
 
+@app.route('/entreprise/map')
+@entreprise_required
+def entreprise_map():
+    # Générer des données fictives d'usines avec leurs niveaux d'émissions pour la carte
+    factories = [
+        {'id': 1, 'lat': 51.505, 'lon': -0.09, 'name': 'London Plant', 'aqi': 68, 'color': '#fbbf24'},
+        {'id': 2, 'lat': 36.8065, 'lon': 10.1815, 'name': 'Tunis Plant', 'aqi': 42, 'color': '#10b981'},
+        {'id': 3, 'lat': 30.0444, 'lon': 31.2357, 'name': 'Cairo Plant', 'aqi': 168, 'color': '#ef4444'},
+        {'id': 4, 'lat': 6.5244, 'lon': 3.3792, 'name': 'Lagos Plant', 'aqi': 132, 'color': '#f97316'},
+        {'id': 5, 'lat': 33.5731, 'lon': -7.5898, 'name': 'Casablanca Main', 'aqi': 38, 'color': '#10b981'},
+    ]
+    return render_template('entreprise_map.html', active_nav='ent_map', factories=factories)
+
+@app.route('/entreprise/predictions')
+@entreprise_required
+def entreprise_predictions():
+    # Projections futures pour l'usine (données fictives réalistes pour PFE)
+    import random
+    from datetime import datetime, timedelta
+    
+    base_date = datetime.now()
+    projections = []
+    
+    current_efficiency = random.uniform(85.0, 90.0)
+    
+    for i in range(7): # Projection sur 7 jours
+        target_date = base_date + timedelta(days=i)
+        
+        # Simuler une légère dégradation du filtre CO2 Wash au fil des jours
+        efficiency = max(60.0, current_efficiency - (i * random.uniform(0.5, 1.5)))
+        
+        projections.append({
+            'date': target_date.strftime('%Y-%m-%d'),
+            'day_name': target_date.strftime('%A'),
+            'efficiency': round(efficiency, 1),
+            'gross_emissions': round(random.uniform(17000, 19000), 0),
+            'status': 'OK' if efficiency > 80 else ('WARNING' if efficiency > 70 else 'CRITICAL')
+        })
+        
+    return render_template('entreprise_predictions.html', active_nav='ent_predictions', projections=projections)
+
 if __name__ == '__main__':
     # Initialiser le serveur
     initialize_server()

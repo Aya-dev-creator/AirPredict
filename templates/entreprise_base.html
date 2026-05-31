@@ -65,14 +65,14 @@
                 <span class="nav-text">IA Optimisation</span>
             </a>
             
-            <div style="padding: 0 1rem; margin-top: 2rem; margin-bottom: 0.5rem; font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Outils Classiques</div>
-            <a href="/map" class="nav-item" target="_blank">
+            <div style="padding: 0 1rem; margin-top: 2rem; margin-bottom: 0.5rem; font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Outils Industriels</div>
+            <a href="/entreprise/map" class="nav-item {{ 'active' if (active_nav|default('')) == 'ent_map' else '' }}">
                 <span class="nav-icon"><i class="fas fa-map-location-dot"></i></span>
-                <span class="nav-text">Carte Mondiale</span>
+                <span class="nav-text">Carte Réseau</span>
             </a>
-            <a href="/predictions" class="nav-item" target="_blank">
+            <a href="/entreprise/predictions" class="nav-item {{ 'active' if (active_nav|default('')) == 'ent_predictions' else '' }}">
                 <span class="nav-icon"><i class="fas fa-chart-line"></i></span>
-                <span class="nav-text">Prédictions Air</span>
+                <span class="nav-text">Projections CO2</span>
             </a>
             
             <div style="margin-top: 2rem;">
