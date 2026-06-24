@@ -1,0 +1,6 @@
+timestamp,gross_emissions_kg_h,efficiency_percent,captured_kg_h,net_emissions_kg_h,site,notes
+2026-06-18T08:00:00,18000,88,15840,2160,Usine Nord Casablanca,"Valeurs exemple - début de poste"
+2026-06-18T09:00:00,18250,87.5,15968.75,2281.25,Usine Nord Casablanca,"Légère baisse rendement"
+2026-06-18T10:00:00,17680,89,15735.2,1944.8,Usine Nord Casablanca,"Filtre stabilisé"
+2026-06-18T11:00:00,19020,86,16357.2,2662.8,Usine Nord Casablanca,"Pic de production"
+2026-06-18T12:00:00,18410,88.2,16239.62,2170.38,Usine Nord Casablanca,"Retour à la normale"

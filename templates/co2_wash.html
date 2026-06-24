@@ -1,5 +1,5 @@
 {% extends "entreprise_base.html" %}
-{% block title %}CO2 Wash Dashboard — AirWatch B2B{% endblock %}
+{% block title %}CO2 Wash Dashboard — AirPredict B2B{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -85,6 +85,46 @@
         margin: 0;
         line-height: 1.5;
     }
+    .co2-upload-form {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 0.75rem;
+    }
+    .co2-file-input {
+        display: none;
+    }
+    .co2-action-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.7rem 1.25rem;
+        background: var(--sidebar-nav-active-gradient);
+        color: #fff;
+        border: none;
+        border-radius: var(--radius-md);
+        font-size: 0.875rem;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        box-shadow: var(--sidebar-active-shadow);
+        transition: transform 0.15s ease, opacity 0.15s ease;
+        text-decoration: none;
+    }
+    .co2-action-btn:hover {
+        transform: translateY(-1px);
+        opacity: 0.95;
+    }
+    .co2-file-name {
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+    }
+    .co2-file-name.has-file {
+        color: var(--text-primary);
+        font-weight: 500;
+    }
 </style>
 {% endblock %}
 
@@ -92,21 +132,62 @@
 <header class="header">
     <div class="header-left">
         <h2 class="page-title">Supervision CO2 Wash</h2>
-        <p class="page-subtitle">Données réelles des émissions et performances de filtration</p>
+        <p class="page-subtitle">Émissions et performance de filtration — source CSV (upload entreprise)</p>
     </div>
 </header>
 
 <div style="padding: var(--spacing-lg);">
+    {% if error %}
+    <div class="alert-error" role="alert" style="margin-bottom: 1rem;">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        <span>{{ error }}</span>
+    </div>
+    {% endif %}
+    {% if success %}
+    <div class="alert-success" role="status" style="margin-bottom: 1rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); border: 1px solid rgba(16,185,129,.35); background: rgba(16,185,129,.12); color: #10b981; font-weight: 600;">
+        <i class="fas fa-check-circle" aria-hidden="true"></i>
+        <span>{{ success }}</span>
+    </div>
+    {% endif %}
+
+    <div class="eco-impact" style="margin-top: 0; margin-bottom: 1.25rem;">
+        <div class="eco-icon"><i class="fas fa-file-csv"></i></div>
+        <div class="eco-text" style="flex: 1;">
+            <h3>Importer un CSV CO2 Wash</h3>
+            <p>Uploadez un CSV contenant au minimum <strong>gross_emissions_kg_h</strong> (kg/h). Optionnel: <strong>efficiency_percent</strong> (ex: 88) ou <strong>efficiency</strong> (ex: 0.88).</p>
+            <form method="POST" action="{{ url_for('entreprise_co2_wash_upload') }}" enctype="multipart/form-data" class="co2-upload-form">
+                <input type="file" id="co2_csv_file" name="file" class="co2-file-input" accept=".csv,text/csv" required />
+                <label for="co2_csv_file" class="co2-action-btn">
+                    <i class="fas fa-folder-open" aria-hidden="true"></i>
+                    Choisir un fichier
+                </label>
+                <span class="co2-file-name" id="co2-file-name">Aucun fichier choisi</span>
+                <button type="submit" class="co2-action-btn">
+                    <i class="fas fa-chart-bar" aria-hidden="true"></i>
+                    Analyser les données
+                </button>
+            </form>
+            {% if stats.last_upload %}
+            <form method="POST" action="{{ url_for('entreprise_co2_wash_reset') }}" style="margin-top: .5rem;">
+                <button type="submit" class="co2-action-btn">
+                    <i class="fas fa-rotate-left" aria-hidden="true"></i>
+                    Réinitialiser les données CSV
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
     <div class="system-status">
         <div class="status-dot"></div>
-        État du système : {{ stats.status }}
+        État du système : {{ stats.status }} {% if stats.source %}<span style="opacity:.8;">· Source: {{ stats.source }}</span>{% endif %}
     </div>
 
     <div class="kpi-grid">
         <div class="kpi-card">
             <div class="kpi-title">Émissions Brutes (Source)</div>
             <div class="kpi-value" style="color: #f87171;">{{ stats.gross }} <span class="kpi-unit">kg/h</span></div>
-            <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: auto;">Source : API Carbon Interface</p>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: auto;">Source : {{ stats.source }}</p>
         </div>
         
         <div class="kpi-card highlight">
@@ -136,4 +217,26 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    var input = document.getElementById('co2_csv_file');
+    var nameEl = document.getElementById('co2-file-name');
+    if (!input || !nameEl) return;
+
+    function updateFileName() {
+        if (input.files && input.files.length) {
+            nameEl.textContent = input.files[0].name;
+            nameEl.classList.add('has-file');
+        } else {
+            nameEl.textContent = 'Aucun fichier choisi';
+            nameEl.classList.remove('has-file');
+        }
+    }
+
+    input.addEventListener('change', updateFileName);
+})();
+</script>
 {% endblock %}

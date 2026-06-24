@@ -514,7 +514,7 @@ def fetch_rss_environment_news(max_items=14):
     collected = []
     # User-Agent personnalisé pour éviter les blocages de certains serveurs de flux RSS
     headers = {
-        'User-Agent': 'Mozilla/5.0 (compatible; AirWatch/2.2; +https://airwatch.local)',
+        'User-Agent': 'Mozilla/5.0 (compatible; AirPredict/2.2; +https://airpredict.local)',
         'Accept': 'application/rss+xml, application/xml, text/xml, */*',
     }
     # Sur Raspberry Pi (détecté via l'absence de certains fichiers Linux standards), on désactive SSL si besoin
@@ -2121,11 +2121,33 @@ def entreprise_logout():
 @app.route('/entreprise/co2-wash')
 @entreprise_required
 def entreprise_co2_wash():
-    # Fetch real gross emissions from the external API (or realistic fallback)
-    gross_emissions_kg = get_external_emissions_data()
-    
-    # CO2 Wash Efficiency (varies between 85% and 92%)
-    efficiency = random.uniform(0.85, 0.92)
+    """
+    Dashboard CO2 Wash.
+
+    Nouveau comportement:
+    - La source principale des émissions (gross kg/h) et de l'efficacité vient d'un CSV uploadé par l'entreprise.
+    - Si aucun CSV n'a été uploadé dans la session, on affiche un fallback (API externe / simulation)
+      avec un statut explicite, afin que la page reste utilisable.
+    """
+    error = request.args.get('error', '')
+    success = request.args.get('success', '')
+
+    co2_data = session.get('co2_wash_data')
+    if co2_data:
+        gross_emissions_kg = float(co2_data.get('gross_kg_h', 0.0) or 0.0)
+        efficiency = float(co2_data.get('efficiency', 0.88) or 0.88)
+        source_label = f"CSV upload ({co2_data.get('file_name', 'unknown')})"
+        status_label = "Actif - Données CSV"
+        last_upload = co2_data.get('upload_timestamp')
+        num_records = co2_data.get('num_records', 0)
+    else:
+        # Mode strict: utiliser uniquement les données du CSV.
+        gross_emissions_kg = 0.0
+        efficiency = 0.88
+        source_label = "Aucune donnée (CSV requis)"
+        status_label = "En attente - Uploadez un CSV CO2 Wash"
+        last_upload = None
+        num_records = 0
     
     captured_kg = gross_emissions_kg * efficiency
     net_emissions_kg = gross_emissions_kg - captured_kg
@@ -2139,10 +2161,79 @@ def entreprise_co2_wash():
         'captured': round(captured_kg, 1),
         'net': round(net_emissions_kg, 1),
         'trees': trees_saved,
-        'status': 'Actif - Filtrage Nominal'
+        'status': status_label,
+        'source': source_label,
+        'last_upload': last_upload,
+        'num_records': num_records,
     }
     
-    return render_template('co2_wash.html', stats=stats, active_nav='co2-wash')
+    return render_template(
+        'co2_wash.html',
+        stats=stats,
+        active_nav='co2-wash',
+        error=error,
+        success=success,
+    )
+
+
+@app.route('/entreprise/co2-wash/upload', methods=['POST'])
+@entreprise_required
+def entreprise_co2_wash_upload():
+    """
+    Upload CSV (CO2 Wash) par l'entreprise.
+
+    Le CSV peut contenir (au minimum) une colonne d'émissions brutes:
+      - gross_emissions_kg_h / gross_kg_h / gross / emissions
+    Et optionnellement:
+      - efficiency / efficiency_percent / co2_wash_efficiency
+      - captured_kg_h / captured
+      - net_emissions_kg_h / net
+
+    Si efficiency n'est pas fournie mais captured et gross existent, on la déduit:
+      efficiency = captured / gross
+    """
+    try:
+        if 'file' not in request.files:
+            return redirect(url_for('entreprise_co2_wash') + '?error=Aucun%20fichier%20fourni')
+
+        file = request.files['file']
+        if file.filename == '':
+            return redirect(url_for('entreprise_co2_wash') + '?error=Fichier%20vide')
+
+        if not allowed_file(file.filename):
+            return redirect(url_for('entreprise_co2_wash') + '?error=Format%20fichier%20invalide%20-%20CSV%20requis')
+
+        parse_result = parse_csv_co2_wash_data(file)
+        if not parse_result.get('success'):
+            error_msg = parse_result.get('error', 'Erreur inconnue')
+            return redirect(url_for('entreprise_co2_wash') + f'?error={error_msg.replace(" ", "%20")}')
+
+        session['co2_wash_data'] = {
+            'gross_kg_h': parse_result['gross_kg_h'],
+            'efficiency': parse_result['efficiency'],
+            'gross_last_kg_h': parse_result.get('gross_last_kg_h'),
+            'efficiency_last': parse_result.get('efficiency_last'),
+            'gross_slope_per_day': parse_result.get('gross_slope_per_day', 0.0),
+            'eff_slope_per_day': parse_result.get('eff_slope_per_day', 0.0),
+            'has_timeseries': parse_result.get('has_timeseries', False),
+            'num_records': parse_result.get('num_records', 0),
+            'file_name': file.filename,
+            'upload_timestamp': datetime.now().isoformat(),
+        }
+        session.modified = True
+
+        return redirect(url_for('entreprise_co2_wash') + '?success=CSV%20CO2%20Wash%20upload%C3%A9%20avec%20succ%C3%A8s')
+    except Exception as e:
+        logger.error(f"Erreur upload CO2 Wash: {e}")
+        return redirect(url_for('entreprise_co2_wash') + '?error=Erreur%20serveur')
+
+
+@app.route('/entreprise/co2-wash/reset', methods=['POST'])
+@entreprise_required
+def entreprise_co2_wash_reset():
+    session.pop('co2_wash_data', None)
+    session.modified = True
+    return redirect(url_for('entreprise_co2_wash') + '?success=Donn%C3%A9es%20CO2%20Wash%20r%C3%A9initialis%C3%A9es')
 
 @app.route('/entreprise/assistant', methods=['GET', 'POST'])
 @entreprise_required
@@ -2189,9 +2280,18 @@ def entreprise_assistant():
                     for msg in session['ent_chat_history'][:-1]
                 ]
                 
-                # Context with current emissions
-                gross = get_external_emissions_data()
-                context = {"Emissions actuelles": f"{round(gross, 1)} kg/h", "Efficacité lavage": "88%"}
+                # Context with current emissions (prefer CSV upload if available)
+                co2_data = session.get('co2_wash_data')
+                if co2_data:
+                    gross = float(co2_data.get('gross_kg_h', 0.0) or 0.0)
+                    eff_pct = float(co2_data.get('efficiency', 0.88) or 0.88) * 100.0
+                else:
+                    gross = get_external_emissions_data()
+                    eff_pct = 88.0
+                context = {
+                    "Emissions actuelles": f"{round(gross, 1)} kg/h",
+                    "Efficacité lavage": f"{round(eff_pct, 1)}%",
+                }
                 
                 response = chatbot_inst.chat(user_input, weather_context=context, mode='enterprise')
                 
@@ -2222,46 +2322,102 @@ def entreprise_assistant():
     )
 
 
-@app.route('/entreprise/map')
-@entreprise_required
-def entreprise_map():
-    # Générer des données fictives d'usines avec leurs niveaux d'émissions pour la carte
-    factories = [
-        {'id': 1, 'lat': 51.505, 'lon': -0.09, 'name': 'London Plant', 'aqi': 68, 'color': '#fbbf24'},
-        {'id': 2, 'lat': 36.8065, 'lon': 10.1815, 'name': 'Tunis Plant', 'aqi': 42, 'color': '#10b981'},
-        {'id': 3, 'lat': 30.0444, 'lon': 31.2357, 'name': 'Cairo Plant', 'aqi': 168, 'color': '#ef4444'},
-        {'id': 4, 'lat': 6.5244, 'lon': 3.3792, 'name': 'Lagos Plant', 'aqi': 132, 'color': '#f97316'},
-        {'id': 5, 'lat': config.MAP_CENTER_LAT, 'lon': config.MAP_CENTER_LON, 'name': 'Casablanca Main', 'aqi': 38, 'color': '#10b981'},
-    ]
-    return render_template('entreprise_map.html', active_nav='ent_map', factories=factories)
+def build_co2_wash_projections(co2_data: dict, days: int = 7):
+    """
+    Construit une projection CO2 Wash à J+N basée sur les métriques issues du CSV.
+
+    co2_data attendu (min):
+      - gross_kg_h (moyenne)
+      - efficiency (moyenne, [0..1])
+    optionnel (si CSV contient une série temporelle):
+      - gross_last_kg_h
+      - efficiency_last
+      - gross_slope_per_day
+      - eff_slope_per_day
+    """
+    # Noms de jours en français (strftime('%A') dépend de la locale système, souvent en anglais).
+    jours_fr = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche']
+
+    base_date = datetime.now()
+    projections = []
+
+    gross0 = float(co2_data.get('gross_last_kg_h') or co2_data.get('gross_kg_h') or 0.0)
+    eff0 = float(co2_data.get('efficiency_last') or co2_data.get('efficiency') or 0.88)  # [0..1]
+
+    gross_slope = float(co2_data.get('gross_slope_per_day') or 0.0)
+    eff_slope = float(co2_data.get('eff_slope_per_day') or 0.0)
+
+    for i in range(days):
+        target_date = base_date + timedelta(days=i)
+
+        gross = gross0 + gross_slope * i
+        efficiency = eff0 + eff_slope * i
+
+        # Clamp (sécurité)
+        gross = max(0.0, gross)
+        efficiency = max(0.50, min(0.95, efficiency))
+
+        eff_pct = efficiency * 100.0
+        status = 'OK' if eff_pct > 80 else ('WARNING' if eff_pct > 70 else 'CRITICAL')
+
+        projections.append({
+            'date': target_date.strftime('%Y-%m-%d'),
+            'day_name': jours_fr[target_date.weekday()],
+            'efficiency': round(eff_pct, 1),
+            'gross_emissions': round(gross, 0),
+            'status': status,
+        })
+
+    return projections
+
 
 @app.route('/entreprise/predictions')
 @entreprise_required
 def entreprise_predictions():
-    # Projections futures pour l'usine (données fictives réalistes pour PFE)
-    import random
-    from datetime import datetime, timedelta
-    
-    base_date = datetime.now()
-    projections = []
-    
-    current_efficiency = random.uniform(85.0, 90.0)
-    
-    for i in range(7): # Projection sur 7 jours
-        target_date = base_date + timedelta(days=i)
-        
-        # Simuler une légère dégradation du filtre CO2 Wash au fil des jours
-        efficiency = max(60.0, current_efficiency - (i * random.uniform(0.5, 1.5)))
-        
-        projections.append({
-            'date': target_date.strftime('%Y-%m-%d'),
-            'day_name': target_date.strftime('%A'),
-            'efficiency': round(efficiency, 1),
-            'gross_emissions': round(random.uniform(17000, 19000), 0),
-            'status': 'OK' if efficiency > 80 else ('WARNING' if efficiency > 70 else 'CRITICAL')
-        })
-        
+    """
+    Projections CO2 Wash (7 jours) basées UNIQUEMENT sur le CSV uploadé.
+
+    Source des données: session['co2_wash_data'] (populé par /entreprise/co2-wash/upload)
+    """
+    co2_data = session.get('co2_wash_data')
+    if not co2_data:
+        return redirect(url_for('entreprise_co2_wash') + '?error=Veuillez%20uploader%20un%20CSV%20CO2%20Wash%20avant%20de%20consulter%20les%20projections')
+
+    projections = build_co2_wash_projections(co2_data, days=7)
     return render_template('entreprise_predictions.html', active_nav='ent_predictions', projections=projections)
+
+
+@app.route('/entreprise/predictions.csv')
+@entreprise_required
+def entreprise_predictions_csv():
+    """Télécharge les projections CO2 Wash (7 jours) au format CSV."""
+    co2_data = session.get('co2_wash_data')
+    if not co2_data:
+        return redirect(url_for('entreprise_co2_wash') + '?error=Veuillez%20uploader%20un%20CSV%20CO2%20Wash%20avant%20de%20t%C3%A9l%C3%A9charger%20les%20projections')
+
+    projections = build_co2_wash_projections(co2_data, days=7)
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=['date', 'day_name', 'gross_emissions_kg_h', 'efficiency_percent', 'status'],
+        extrasaction='ignore'
+    )
+    writer.writeheader()
+    for p in projections:
+        writer.writerow({
+            'date': p['date'],
+            'day_name': p['day_name'],
+            'gross_emissions_kg_h': p['gross_emissions'],
+            'efficiency_percent': p['efficiency'],
+            'status': p['status'],
+        })
+
+    csv_text = output.getvalue()
+    return Response(
+        csv_text,
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename="projections_co2_wash_7j.csv"'}
+    )
 
 
 # ============= MODULE ENTREPRISES & INDUSTRIES (Analyse CSV capteurs) =============
@@ -2409,6 +2565,173 @@ def parse_csv_pollution_data(file_stream):
             'success': False,
             'error': f"Erreur lors de la lecture du CSV: {str(e)}"
         }
+
+
+def parse_csv_co2_wash_data(file_stream):
+    """
+    Parse un CSV CO2 Wash (émissions industrielles + performance de filtration).
+
+    Colonnes acceptées (variantes tolérées, insensible à la casse/espaces):
+      - gross emissions (obligatoire): gross_emissions_kg_h, gross_kg_h, gross, emissions, co2_emissions_kg_h
+      - efficiency (optionnel): efficiency, efficiency_percent, co2_wash_efficiency, filter_efficiency
+      - captured (optionnel): captured_kg_h, captured
+      - net (optionnel): net_emissions_kg_h, net
+
+    Règles de calcul:
+      - gross = moyenne(colonne gross) si disponible
+      - efficiency:
+          - si fourni: normalisé en [0..1] (ex: 88 ou 0.88)
+          - sinon si captured et gross: captured/gross
+          - sinon: 0.88 par défaut
+    """
+    try:
+        file_bytes = file_stream.read()
+        try:
+            text_stream = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            text_stream = file_bytes.decode('ascii', errors='ignore')
+
+        reader = csv.DictReader(io.StringIO(text_stream))
+        rows = list(reader)
+        if not rows:
+            return {'success': False, 'error': 'Le fichier CSV est vide ou mal formaté.'}
+
+        # normaliser clés
+        normalized = []
+        for row in rows:
+            normalized.append({
+                (k or '').strip().lower().replace(' ', '_'): v
+                for k, v in row.items()
+                if k is not None and str(k).strip() != ''
+            })
+
+        gross_keys = [
+            'gross_emissions_kg_h', 'gross_kg_h', 'gross', 'emissions',
+            'co2_emissions_kg_h', 'co2_gross_kg_h',
+        ]
+        eff_keys = ['efficiency', 'efficiency_percent', 'co2_wash_efficiency', 'filter_efficiency']
+        captured_keys = ['captured_kg_h', 'captured', 'co2_captured_kg_h']
+        net_keys = ['net_emissions_kg_h', 'net', 'co2_net_kg_h']
+        ts_keys = ['timestamp', 'time', 'datetime', 'date']
+
+        def avg_for(keys):
+            vals = []
+            for r in normalized:
+                for k in keys:
+                    if k in r and r[k] not in (None, ''):
+                        try:
+                            vals.append(float(r[k]))
+                        except (TypeError, ValueError):
+                            pass
+            if not vals:
+                return None
+            return sum(vals) / len(vals)
+
+        gross_avg = avg_for(gross_keys)
+        captured_avg = avg_for(captured_keys)
+        net_avg = avg_for(net_keys)
+        eff_avg = avg_for(eff_keys)
+
+        if gross_avg is None:
+            # fallback si on a captured + net
+            if captured_avg is not None and net_avg is not None:
+                gross_avg = captured_avg + net_avg
+            else:
+                return {
+                    'success': False,
+                    'error': "Colonne d'émissions brutes manquante (ex: gross_emissions_kg_h).",
+                }
+
+        efficiency = None
+        if eff_avg is not None:
+            # 88 -> 0.88 ; 0.88 reste 0.88
+            efficiency = eff_avg / 100.0 if eff_avg > 1.0 else eff_avg
+        elif captured_avg is not None and gross_avg > 0:
+            efficiency = captured_avg / gross_avg
+        else:
+            efficiency = 0.88
+
+        # clamp
+        efficiency = max(0.0, min(0.99, float(efficiency)))
+
+        # -------- Séries (optionnel) : gross/eff sur le temps --------
+        def _first_float(row: dict, keys: list[str]):
+            for k in keys:
+                if k in row and row[k] not in (None, ''):
+                    try:
+                        return float(row[k])
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        def _parse_ts(row: dict):
+            for k in ts_keys:
+                if k in row and row[k] not in (None, ''):
+                    raw = str(row[k]).strip()
+                    try:
+                        return datetime.fromisoformat(raw.replace('Z', '+00:00'))
+                    except Exception:
+                        # fallback formats fréquents
+                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y/%m/%d %H:%M:%S', '%Y/%m/%d %H:%M'):
+                            try:
+                                return datetime.strptime(raw, fmt)
+                            except Exception:
+                                pass
+            return None
+
+        gross_series = []
+        eff_series = []
+        ts_series = []
+        for r in normalized:
+            g = _first_float(r, gross_keys)
+            cap = _first_float(r, captured_keys)
+            net = _first_float(r, net_keys)
+            e = _first_float(r, eff_keys)
+
+            if g is None and cap is not None and net is not None:
+                g = cap + net
+
+            eff_val = None
+            if e is not None:
+                eff_val = e / 100.0 if e > 1.0 else e
+            elif cap is not None and g and g > 0:
+                eff_val = cap / g
+
+            ts = _parse_ts(r)
+            if g is not None and eff_val is not None:
+                gross_series.append(float(g))
+                eff_series.append(max(0.0, min(0.99, float(eff_val))))
+                ts_series.append(ts)
+
+        gross_last = gross_series[-1] if gross_series else float(gross_avg)
+        eff_last = eff_series[-1] if eff_series else float(efficiency)
+
+        gross_slope_per_day = 0.0
+        eff_slope_per_day = 0.0
+        has_ts = False
+        valid_ts = [t for t in ts_series if isinstance(t, datetime)]
+        if len(gross_series) >= 2 and len(valid_ts) == len(gross_series):
+            t0 = valid_ts[0]
+            x = np.array([(t - t0).total_seconds() / 86400.0 for t in valid_ts], dtype=np.float64)
+            if float(np.max(x)) > 0:
+                has_ts = True
+                gross_slope_per_day = float(np.polyfit(x, np.array(gross_series, dtype=np.float64), 1)[0])
+                eff_slope_per_day = float(np.polyfit(x, np.array(eff_series, dtype=np.float64), 1)[0])
+
+        return {
+            'success': True,
+            'gross_kg_h': round(float(gross_avg), 4),
+            'efficiency': round(float(efficiency), 6),
+            'gross_last_kg_h': round(float(gross_last), 4),
+            'efficiency_last': round(float(eff_last), 6),
+            'gross_slope_per_day': round(float(gross_slope_per_day), 6),
+            'eff_slope_per_day': round(float(eff_slope_per_day), 8),
+            'has_timeseries': bool(has_ts),
+            'num_records': len(rows),
+        }
+    except Exception as e:
+        logger.error(f"Erreur parsing CSV CO2 Wash: {e}")
+        return {'success': False, 'error': f"Erreur lors de la lecture du CSV: {str(e)}"}
 
 
 def generate_folium_map(entity_name: str, entity_type: str, lat: float, lon: float, aqi_level: int):

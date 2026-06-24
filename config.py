@@ -97,34 +97,6 @@ class Config:
         'UPLOAD_FOLDER': os.getenv('UPLOAD_FOLDER', './data/uploads')
     }
     
-    # ============= CONFIGURATION EMAIL (ALERTES) =============
-    # Configuration pour envoyer des alertes par email quand la qualité de l'air est mauvaise
-    EMAIL_CONFIG = {
-        # Serveur SMTP pour l'envoi d'emails
-        # Par défaut: smtp.gmail.com (serveur SMTP de Gmail)
-        'smtp_server': os.getenv('SMTP_SERVER', 'smtp.gmail.com'),
-        
-        # Port SMTP (587 = STARTTLS, 465 = SSL)
-        # 587 est le port standard pour Gmail avec STARTTLS
-        'smtp_port': int(os.getenv('SMTP_PORT', 587)),
-        
-        # Nom d'utilisateur pour l'authentification SMTP
-        # Pour Gmail: votre adresse email complète
-        'username': os.getenv('SMTP_USERNAME', ''),
-        
-        # Mot de passe pour l'authentification SMTP
-        # Pour Gmail: utilisez un "mot de passe d'application" (pas votre mot de passe Google)
-        'password': os.getenv('SMTP_PASSWORD', ''),
-        
-        # Adresse email qui recevra les alertes
-        # Peut être la même que le username ou une adresse différente
-        'alert_email': os.getenv('ALERT_EMAIL', ''),
-        
-        # Active ou désactive l'envoi d'emails
-        # 'true' si un username SMTP est configuré, 'false' sinon
-        'enabled': bool(os.getenv('SMTP_USERNAME'))
-    }
-    
     # ============= LOCALISATION (carte / météo par défaut) =============
     # Ces paramètres définissent la localisation par défaut pour la carte et la météo
     # Centre carte : météo OpenWeather (ville ci-dessous) sauf si MAP_FOLLOW_GPS=true
@@ -204,7 +176,7 @@ class Config:
         elif value <= thresholds['moderate']:
             return {
                 'level': 'Modéré',
-                'color': '#FFFF00',
+                'color': '#B45309',
                 'description': 'Qualité acceptable, pollution modérée'
             }
         elif value <= thresholds['unhealthy']:

@@ -1,5 +1,5 @@
 {% extends "entreprise_base.html" %}
-{% block title %}Projections CO2 — AirWatch B2B{% endblock %}
+{% block title %}Projections CO2 — AirPredict B2B{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -59,6 +59,14 @@
         <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1.5rem;">
             L'intelligence artificielle a analysé l'usure de votre membrane de lavage CO2. Une maintenance est recommandée si l'efficacité chute sous les 75%.
         </p>
+
+        <div style="display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; margin-bottom: 1rem;">
+            <a class="btn-analyze" href="{{ url_for('entreprise_predictions_csv') }}" style="text-decoration:none; padding:.65rem 1rem;">
+                <i class="fas fa-download" aria-hidden="true"></i>
+                Télécharger le CSV
+            </a>
+            <span style="color: var(--text-muted); font-size: .85rem;">(Projections calculées depuis votre dernier CSV CO2 Wash)</span>
+        </div>
         
         <div class="table-responsive">
             <table class="pred-table">

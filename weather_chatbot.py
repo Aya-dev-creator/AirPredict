@@ -37,7 +37,7 @@ class WeatherChatbot:
         self.model = "mistral-small-latest"  # Using Mistral Small for faster responses
         
         # System prompt for the weather chatbot (French + HTML format)
-        self.system_prompt = """Vous êtes l'assistant IA météo et qualité de l'air d'AirWatch.
+        self.system_prompt = """Vous êtes l'assistant IA météo et qualité de l'air d'AirPredict.
 Votre rôle est de répondre aux questions des utilisateurs en français de manière claire, chaleureuse et structurée.
 
 Consignes obligatoires de formatage et de style :
@@ -54,7 +54,7 @@ Consignes obligatoires de formatage et de style :
 6. Restez focalisé sur la météo, la qualité de l'air, la santé et les conseils associés. Ne proposez rien qui sorte de ce cadre."""
 
         # System prompt for the enterprise chatbot
-        self.enterprise_system_prompt = """Vous êtes l'assistant IA industriel et environnemental d'AirWatch Entreprise.
+        self.enterprise_system_prompt = """Vous êtes l'assistant IA industriel et environnemental d'AirPredict Entreprise.
 Votre rôle est d'analyser les émissions de CO2 des usines industrielles, d'évaluer l'efficacité des systèmes de lavage de CO2 (CO2 Wash) et de proposer des solutions d'optimisation énergétique pour réduire l'empreinte carbone.
 
 Consignes obligatoires de formatage et de style :

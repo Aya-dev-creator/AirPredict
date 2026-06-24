@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    <title>{% block title %}AirWatch Entreprise{% endblock %}</title>
+    <title>{% block title %}AirPredict Entreprise{% endblock %}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}?v={{ app_build|default('3') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/responsive.css') }}?v={{ app_build|default('2') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -61,7 +61,7 @@
         <label for="menu-toggle" class="menu-toggle-btn">
             <span></span><span></span><span></span>
         </label>
-        <div class="mobile-header-title">AirWatch B2B</div>
+        <div class="mobile-header-title">AirPredict B2B</div>
         <a href="{{ url_for('toggle_theme') }}" class="mobile-theme-btn"
            title="{% if theme == 'dark' %}Activer le mode clair{% else %}Activer le mode sombre{% endif %}"
            aria-label="{% if theme == 'dark' %}Activer le mode clair{% else %}Activer le mode sombre{% endif %}">
@@ -75,8 +75,8 @@
 
     <div class="sidebar">
         <div class="logo">
-            <img class="logo-icon" src="{{ url_for('static', filename='logo_b2b.png') }}" alt="Logo AirWatch" aria-hidden="true">
-            <h1 class="logo-title">AirWatch B2B</h1>
+            <img class="logo-icon" src="{{ url_for('static', filename='logo_b2b.png') }}" alt="Logo AirPredict" aria-hidden="true">
+            <h1 class="logo-title">AirPredict B2B</h1>
         </div>
 
         <nav class="nav-menu" aria-label="Navigation principale">
@@ -98,10 +98,6 @@
             <a href="/entreprise" class="nav-item {{ 'active' if (active_nav|default('')) == 'csv_upload' else '' }}">
                 <span class="nav-icon"><i class="fas fa-file-csv"></i></span>
                 <span class="nav-text">Analyse CSV Capteurs</span>
-            </a>
-            <a href="/entreprise/map" class="nav-item {{ 'active' if (active_nav|default('')) == 'ent_map' else '' }}">
-                <span class="nav-icon"><i class="fas fa-map-location-dot"></i></span>
-                <span class="nav-text">Carte Réseau</span>
             </a>
             <a href="/entreprise/predictions" class="nav-item {{ 'active' if (active_nav|default('')) == 'ent_predictions' else '' }}">
                 <span class="nav-icon"><i class="fas fa-chart-line"></i></span>
